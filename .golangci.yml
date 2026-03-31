@@ -3,15 +3,14 @@ version: "2"
 linters:
   enable:
     # Bugs / correctness
+    # (gosimple, copylock, stylecheck removed — merged into staticcheck in v2)
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
     - bodyclose
     - contextcheck
-    - copylock
     - durationcheck
     - errname
     - errorlint
