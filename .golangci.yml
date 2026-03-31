@@ -35,7 +35,7 @@ linters:
     - nestif
     - nolintlint
     - revive
-    - stylecheck
+
     - unconvert
     - whitespace
 
