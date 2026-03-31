@@ -16,8 +16,6 @@ linters:
     - errname
     - errorlint
     - exhaustive
-    - exportloopref
-    - forcetypeassert
     - gocritic
     - noctx
     - nilerr
@@ -26,7 +24,6 @@ linters:
     - reassign
     - rowserrcheck
     - sqlclosecheck
-    - testifylint
     - unparam
     - usestdlibvars
     - wastedassign
@@ -36,20 +33,14 @@ linters:
     - goimports
     - gochecknoglobals
     - godot
-    - godox
-    - goheader
-    - gomodguard
-    - lll
     - misspell
     - nakedret
     - nestif
-    - nlreturn
     - nolintlint
     - revive
     - stylecheck
     - unconvert
     - whitespace
-    - wsl
 
     # Performance
     - prealloc
@@ -107,23 +98,16 @@ linters-settings:
     excludes:
       - G304  # file path from variable — intentional for an editor
 
-  gochecknoglobals:
-    check-tests: false
-
 issues:
   exclude-rules:
-    # Test files get more latitude.
     - path: "_test\\.go"
       linters:
         - funlen
         - gocognit
         - gocyclo
         - cyclop
-        - wsl
-        - nlreturn
         - gochecknoglobals
 
-    # Generated or boilerplate files.
     - path: "internal/lsp/"
       linters:
         - gochecknoglobals
