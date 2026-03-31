@@ -55,62 +55,63 @@ linters:
     - gocyclo
     - maintidx
 
-linters-settings:
-  lll:
-    line-length: 120
+  settings:
+    lll:
+      line-length: 120
 
-  funlen:
-    lines: 120
-    statements: 60
+    funlen:
+      lines: 120
+      statements: 60
 
-  gocognit:
-    min-complexity: 20
+    gocognit:
+      min-complexity: 20
 
-  gocyclo:
-    min-complexity: 20
+    gocyclo:
+      min-complexity: 20
 
-  cyclop:
-    max-complexity: 20
+    cyclop:
+      max-complexity: 20
 
-  nestif:
-    min-complexity: 5
+    nestif:
+      min-complexity: 5
 
-  godot:
-    scope: declarations
+    godot:
+      scope: declarations
 
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-      - experimental
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - experimental
 
-  revive:
-    rules:
-      - name: exported
-      - name: var-naming
-      - name: error-return
-      - name: error-strings
-      - name: increment-decrement
-      - name: unused-parameter
+    revive:
+      rules:
+        - name: exported
+        - name: var-naming
+        - name: error-return
+        - name: error-strings
+        - name: increment-decrement
+        - name: unused-parameter
 
-  gosec:
-    excludes:
-      - G304  # file path from variable — intentional for an editor
+    gosec:
+      excludes:
+        - G304  # file path from variable — intentional for an editor
 
 issues:
-  exclude-rules:
-    - path: "_test\\.go"
-      linters:
-        - funlen
-        - gocognit
-        - gocyclo
-        - cyclop
-        - gochecknoglobals
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - funlen
+          - gocognit
+          - gocyclo
+          - cyclop
+          - gochecknoglobals
 
-    - path: "internal/lsp/"
-      linters:
-        - gochecknoglobals
+      - path: "internal/lsp/"
+        linters:
+          - gochecknoglobals
 
   max-issues-per-linter: 0
   max-same-issues: 0
