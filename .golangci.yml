@@ -29,8 +29,6 @@ linters:
     - wastedassign
 
     # Style / maintainability
-    - gofmt
-    - goimports
     - gochecknoglobals
     - godot
     - misspell
@@ -107,6 +105,11 @@ linters:
       - path: "internal/lsp/"
         linters:
           - gochecknoglobals
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 issues:
   max-issues-per-linter: 0
