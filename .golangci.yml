@@ -94,11 +94,6 @@ linters:
         - name: increment-decrement
         - name: unused-parameter
 
-    gosec:
-      excludes:
-        - G304  # file path from variable — intentional for an editor
-
-issues:
   exclusions:
     rules:
       - path: "_test\\.go"
@@ -113,5 +108,6 @@ issues:
         linters:
           - gochecknoglobals
 
+issues:
   max-issues-per-linter: 0
   max-same-issues: 0
