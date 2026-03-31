@@ -1,0 +1,132 @@
+version: "2"
+
+linters:
+  enable:
+    # Bugs / correctness
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - copylock
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - forcetypeassert
+    - gocritic
+    - noctx
+    - nilerr
+    - nilnil
+    - predeclared
+    - reassign
+    - rowserrcheck
+    - sqlclosecheck
+    - testifylint
+    - unparam
+    - usestdlibvars
+    - wastedassign
+
+    # Style / maintainability
+    - gofmt
+    - goimports
+    - gochecknoglobals
+    - godot
+    - godox
+    - goheader
+    - gomodguard
+    - lll
+    - misspell
+    - nakedret
+    - nestif
+    - nlreturn
+    - nolintlint
+    - revive
+    - stylecheck
+    - unconvert
+    - whitespace
+    - wsl
+
+    # Performance
+    - prealloc
+
+    # Security
+    - gosec
+
+    # Complexity
+    - cyclop
+    - funlen
+    - gocognit
+    - gocyclo
+    - maintidx
+
+linters-settings:
+  lll:
+    line-length: 120
+
+  funlen:
+    lines: 120
+    statements: 60
+
+  gocognit:
+    min-complexity: 20
+
+  gocyclo:
+    min-complexity: 20
+
+  cyclop:
+    max-complexity: 20
+
+  nestif:
+    min-complexity: 5
+
+  godot:
+    scope: declarations
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+
+  revive:
+    rules:
+      - name: exported
+      - name: var-naming
+      - name: error-return
+      - name: error-strings
+      - name: increment-decrement
+      - name: unused-parameter
+
+  gosec:
+    excludes:
+      - G304  # file path from variable — intentional for an editor
+
+  gochecknoglobals:
+    check-tests: false
+
+issues:
+  exclude-rules:
+    # Test files get more latitude.
+    - path: "_test\\.go"
+      linters:
+        - funlen
+        - gocognit
+        - gocyclo
+        - cyclop
+        - wsl
+        - nlreturn
+        - gochecknoglobals
+
+    # Generated or boilerplate files.
+    - path: "internal/lsp/"
+      linters:
+        - gochecknoglobals
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
