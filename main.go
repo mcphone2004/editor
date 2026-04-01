@@ -17,23 +17,15 @@ func main() {
 		path = os.Args[1]
 	}
 
-	// Start gopls if it's available. Non-fatal if not found.
+	// Start gopls only if a go.mod can be found from the file's directory.
 	var lspSession *lsp.Session
-	rootDir := "."
-	if path != "" {
-		// Use the directory containing the file, not the file itself.
-		info, _ := os.Stat(path) //nolint:gosec // user-supplied CLI path
-		if info != nil && info.IsDir() {
-			rootDir = path
+	if rootDir, ok := findModuleRoot(path); ok {
+		sess, err := lsp.StartGopls(rootDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "note: gopls unavailable (%v) — LSP features disabled\n", err)
 		} else {
-			rootDir = filepath.Dir(path)
+			lspSession = sess
 		}
-	}
-	sess, err := lsp.StartGopls(rootDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "note: gopls unavailable (%v) — LSP features disabled\n", err)
-	} else {
-		lspSession = sess
 	}
 
 	tel := telemetry.New()
@@ -45,6 +37,29 @@ func main() {
 	}
 	if code != 0 {
 		os.Exit(code)
+	}
+}
+
+// findModuleRoot walks up from path's directory looking for a go.mod file.
+// Returns the directory containing go.mod and true if found, otherwise ("", false).
+func findModuleRoot(path string) (string, bool) {
+	dir := path
+	if path == "" {
+		dir = "."
+	}
+	info, _ := os.Stat(path) //nolint:gosec // user-supplied CLI path
+	if info != nil && !info.IsDir() {
+		dir = filepath.Dir(path)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil { //nolint:gosec // walking up from user-supplied path by design
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
 	}
 }
 
