@@ -151,7 +151,8 @@ func (s *Session) initialize() error {
 				"unusedparams": true,
 				"shadow":       true,
 			},
-			"staticcheck": true,
+			// staticcheck disabled: runs full project-wide analysis on startup, OOM risk.
+			"staticcheck": false,
 		},
 	}
 	var result json.RawMessage
