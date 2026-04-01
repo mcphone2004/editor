@@ -77,6 +77,13 @@ var (
 				Background(lipgloss.Color("62")).
 				Foreground(lipgloss.Color("255")).
 				Padding(0, 1)
+
+	styleStatusLSPOn = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("2")).
+				Bold(true)
+
+	styleStatusLSPOff = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240"))
 )
 
 // --- Message types for async operations ---
@@ -375,8 +382,14 @@ func (m *Model) renderStatus() string {
 	if m.buf.Modified {
 		left += " [+]"
 	}
-	right := fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
-	pad := m.width - lipgloss.Width(left) - len(right) - 1
+	var lspIndicator string
+	if m.lsp != nil {
+		lspIndicator = styleStatusLSPOn.Render("LSP")
+	} else {
+		lspIndicator = styleStatusLSPOff.Render("no LSP")
+	}
+	right := lspIndicator + "  " + fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
+	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
 	if pad < 0 {
 		pad = 0
 	}
