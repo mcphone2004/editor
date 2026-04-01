@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/anthonybrice/editor/internal/lsp"
 	"github.com/anthonybrice/editor/internal/ui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -26,18 +26,30 @@ func main() {
 		fmt.Fprintf(os.Stderr, "note: gopls unavailable (%v) — LSP features disabled\n", err)
 	} else {
 		lspSession = sess
-		defer lspSession.Shutdown()
 	}
 
+	if code := run(path, lspSession); code != 0 {
+		if lspSession != nil {
+			lspSession.Shutdown()
+		}
+		os.Exit(code)
+	}
+	if lspSession != nil {
+		lspSession.Shutdown()
+	}
+}
+
+func run(path string, lspSession *lsp.Session) int {
 	m, err := ui.New(path, lspSession)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

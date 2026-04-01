@@ -5,7 +5,8 @@
 // the cursor requires shifting the gap, which is O(distance moved).
 //
 // Layout:  [ text before gap | <gap> | text after gap ]
-//           0            gapStart  gapEnd          len(buf)
+//
+//	0            gapStart  gapEnd          len(buf)
 //
 // Logical text = buf[0:gapStart] + buf[gapEnd:]
 package gap

@@ -8,6 +8,7 @@ package lsp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,7 +67,7 @@ type Notification struct {
 
 // Start launches the language server at command+args and returns a Client.
 func Start(command string, args ...string) (*Client, error) {
-	cmd := exec.Command(command, args...)
+	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // intentional subprocess launch for LSP
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
