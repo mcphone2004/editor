@@ -20,6 +20,7 @@ import (
 
 // --- Styles ---
 
+//nolint:gochecknoglobals // lipgloss styles are immutable after init, equivalent to constants
 var (
 	styleLineNum = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
@@ -279,10 +280,18 @@ func (m *Model) View() string {
 		if row < m.buf.LineCount() {
 			line := []rune(m.buf.Line(row))
 			for col, r := range line {
-				ch := string(r)
-				// Clamp display width for wide chars.
-				if utf8.RuneLen(r) == 0 {
+				// Expand tabs to 4 spaces so visual width is stable regardless
+				// of cursor position (a terminal-rendered \t under a styled
+				// cursor collapses to 1 column instead of expanding to the tab
+				// stop, causing the rest of the line to shift).
+				var ch string
+				switch {
+				case r == '\t':
+					ch = "    "
+				case utf8.RuneLen(r) == 0:
 					ch = " "
+				default:
+					ch = string(r)
 				}
 
 				inVisual := isVisual && inVisualRange(row, col, visStart, visEnd, m.ed.Mode() == editor.ModeVisualLine)
@@ -313,7 +322,7 @@ func (m *Model) View() string {
 	switch m.ed.Mode() {
 	case editor.ModeCommand:
 		sb.WriteString(string(m.ed.CmdMode()) + m.ed.CmdBuf())
-	default:
+	case editor.ModeNormal, editor.ModeInsert, editor.ModeVisual, editor.ModeVisualLine:
 		if m.ed.StatusMsg() != "" &&
 			m.ed.StatusMsg() != "quit" &&
 			m.ed.StatusMsg() != "quit!" &&
@@ -342,14 +351,14 @@ func (m *Model) renderStatus() string {
 
 	var modeStyle lipgloss.Style
 	switch m.ed.Mode() {
+	case editor.ModeNormal:
+		modeStyle = styleStatusNormal
 	case editor.ModeInsert:
 		modeStyle = styleStatusInsert
 	case editor.ModeVisual, editor.ModeVisualLine:
 		modeStyle = styleStatusVisual
 	case editor.ModeCommand:
 		modeStyle = styleStatusCommand
-	default:
-		modeStyle = styleStatusNormal
 	}
 
 	left := modeStyle.Render(modeStr) + " " + m.buf.Path
@@ -517,8 +526,8 @@ func parseVetOutput(output, _ string) []editor.Diagnostic {
 		if len(rest) < 3 {
 			continue
 		}
-		fmt.Sscanf(rest[1], "%d", &row)
-		fmt.Sscanf(rest[2], "%d", &col)
+		_, _ = fmt.Sscanf(rest[1], "%d", &row)
+		_, _ = fmt.Sscanf(rest[2], "%d", &col)
 		if len(rest) == 4 {
 			msg = strings.TrimSpace(rest[3])
 		}
@@ -625,7 +634,7 @@ func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 // engine uses: printable runes pass through as-is; special keys become
 // "<Name>" strings.
 func keyString(msg tea.KeyMsg) string {
-	switch msg.Type {
+	switch msg.Type { //nolint:exhaustive // intentionally handles only the subset of keys the editor uses
 	case tea.KeyRunes:
 		return string(msg.Runes)
 	case tea.KeyEnter:

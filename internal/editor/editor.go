@@ -133,14 +133,14 @@ func (e *Editor) VisualRange() (Pos, Pos) {
 // key is a string like "a", "A", "<C-c>", "<Esc>", "<Enter>", etc.
 func (e *Editor) HandleKey(key string) {
 	switch e.mode {
+	case ModeNormal:
+		e.handleNormal(key)
 	case ModeInsert:
 		e.handleInsert(key)
 	case ModeCommand:
 		e.handleCommand(key)
 	case ModeVisual, ModeVisualLine:
 		e.handleVisual(key)
-	default:
-		e.handleNormal(key)
 	}
 }
 

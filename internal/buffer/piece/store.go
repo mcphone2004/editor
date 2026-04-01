@@ -157,7 +157,11 @@ func (s *PgStore) load() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	for rows.Next() {
 		var id int64
 		var data []byte

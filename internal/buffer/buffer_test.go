@@ -24,7 +24,9 @@ func newBuf(t *testing.T, content string) *buffer.Buffer {
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	buf, err := buffer.Open(f.Name())
 	if err != nil {
 		t.Fatal(err)

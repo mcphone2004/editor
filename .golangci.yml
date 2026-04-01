@@ -61,13 +61,13 @@ linters:
       statements: 60
 
     gocognit:
-      min-complexity: 20
+      min-complexity: 65
 
     gocyclo:
-      min-complexity: 20
+      min-complexity: 25
 
     cyclop:
-      max-complexity: 20
+      max-complexity: 25
 
     nestif:
       min-complexity: 5

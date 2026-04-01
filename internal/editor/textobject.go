@@ -5,7 +5,7 @@ package editor
 // means "around" (a).
 type TextObject func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool)
 
-var textObjects = map[rune]TextObject{
+var textObjects = map[rune]TextObject{ //nolint:gochecknoglobals // constant lookup table equivalent
 	'w': toWord,
 	'W': toWordBig,
 	'"': toQuote('"'),

@@ -251,7 +251,7 @@ func (b *Buffer) Newline(row, col int) {
 }
 
 // DeleteBack deletes the rune before (row, col). Returns new position.
-func (b *Buffer) DeleteBack(row, col int) (int, int) {
+func (b *Buffer) DeleteBack(row, col int) (newRow, newCol int) {
 	if b.hotActive && row == b.hotRow {
 		if col > 0 {
 			b.gap.MoveTo(col)
@@ -306,7 +306,7 @@ func (b *Buffer) DeleteRune(row, col int) bool {
 }
 
 // DeleteRange deletes from (r1,c1) inclusive to (r2,c2) exclusive.
-func (b *Buffer) DeleteRange(r1, c1, r2, c2 int) (int, int) {
+func (b *Buffer) DeleteRange(r1, c1, r2, c2 int) (row, col int) {
 	b.FlushGap()
 	start := b.table.PosToOffset(r1, c1)
 	end := b.table.PosToOffset(r2, c2)
@@ -388,7 +388,7 @@ func (b *Buffer) InsertLineAbove(row int) int {
 }
 
 // PasteAfter pastes text after col (or below row if linewise).
-func (b *Buffer) PasteAfter(row, col int, text string, linewise bool) (int, int) {
+func (b *Buffer) PasteAfter(row, col int, text string, linewise bool) (newRow, newCol int) {
 	b.FlushGap()
 	if linewise {
 		newRow := b.InsertLineBelow(row)
@@ -410,12 +410,12 @@ func (b *Buffer) PasteAfter(row, col int, text string, linewise bool) (int, int)
 	b.table.Insert(pos, []rune(text))
 	b.Modified = true
 	b.pushSnapshot()
-	newRow, newCol := b.table.OffsetToPos(pos + len([]rune(text)) - 1)
+	newRow, newCol = b.table.OffsetToPos(pos + len([]rune(text)) - 1)
 	return newRow, newCol
 }
 
 // PasteBefore pastes text at col (or above row if linewise).
-func (b *Buffer) PasteBefore(row, col int, text string, linewise bool) (int, int) {
+func (b *Buffer) PasteBefore(row, col int, text string, linewise bool) (newRow, newCol int) {
 	b.FlushGap()
 	if linewise {
 		newRow := b.InsertLineAbove(row)

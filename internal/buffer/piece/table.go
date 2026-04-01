@@ -214,13 +214,14 @@ func (t *Table) Insert(pos int, text []rune) {
 	newPiece := Piece{Which: bufAdd, Start: addStart, Length: len(text)}
 
 	idx, offset := t.findPiece(pos)
-	if idx == len(t.pieces) {
+	switch {
+	case idx == len(t.pieces):
 		// Append at end.
 		t.pieces = append(t.pieces, newPiece)
-	} else if offset == 0 {
+	case offset == 0:
 		// Insert before piece idx.
 		t.pieces = insert(t.pieces, idx, newPiece)
-	} else {
+	default:
 		// Split piece idx at offset.
 		left, right := t.splitPiece(idx, offset)
 		t.pieces = spliceIn(t.pieces, idx, left, newPiece, right)
