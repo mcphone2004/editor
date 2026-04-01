@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthonybrice/editor/internal/telemetry"
 	"github.com/anthonybrice/editor/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	"go.uber.org/goleak"
@@ -25,7 +26,7 @@ func stripANSI(s string) string {
 // newModel returns a Model initialised with an 80×24 terminal, no file, no LSP.
 func newModel(t *testing.T) tea.Model {
 	t.Helper()
-	m, err := ui.New("", nil)
+	m, err := ui.New("", nil, telemetry.Noop())
 	if err != nil {
 		t.Fatal(err)
 	}

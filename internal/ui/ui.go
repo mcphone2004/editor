@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/anthonybrice/editor/internal/buffer"
 	"github.com/anthonybrice/editor/internal/editor"
 	"github.com/anthonybrice/editor/internal/lsp"
+	"github.com/anthonybrice/editor/internal/telemetry"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -96,6 +98,7 @@ type Model struct {
 	ed     *editor.Editor
 	buf    *buffer.Buffer
 	lsp    *lsp.Session // may be nil
+	tel    telemetry.Telemetry
 	width  int
 	height int
 	scroll int // first visible line
@@ -114,7 +117,8 @@ type Model struct {
 
 // New creates a Model. Opens the file at path (empty = new buffer).
 // lspSession may be nil to disable LSP features.
-func New(path string, lspSession *lsp.Session) (*Model, error) {
+// tel may be nil; pass telemetry.Noop() or telemetry.New() from the caller.
+func New(path string, lspSession *lsp.Session, tel telemetry.Telemetry) (*Model, error) {
 	var buf *buffer.Buffer
 	var err error
 	if path != "" {
@@ -126,8 +130,11 @@ func New(path string, lspSession *lsp.Session) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tel == nil {
+		tel = telemetry.Noop()
+	}
 	ed := editor.New(buf)
-	return &Model{ed: ed, buf: buf, lsp: lspSession}, nil
+	return &Model{ed: ed, buf: buf, lsp: lspSession, tel: tel}, nil
 }
 
 // Init implements tea.Model.
@@ -498,14 +505,22 @@ func (m *Model) runVet() tea.Cmd {
 	if path == "" {
 		return nil
 	}
+	tel := m.tel
 	return func() tea.Msg {
+		tel.VetStart(".")
+		start := time.Now()
 		out, err := exec.CommandContext(context.Background(), "go", "vet", "./...").
 			CombinedOutput()
-		if err == nil {
-			return msgVetDiags{}
+		durationMS := time.Since(start).Milliseconds()
+		exitCode := 0
+		if err != nil {
+			exitCode = 1
+			tel.VetEnd(".", durationMS, exitCode, string(out))
+			diags := parseVetOutput(string(out), path)
+			return msgVetDiags{diags: diags}
 		}
-		diags := parseVetOutput(string(out), path)
-		return msgVetDiags{diags: diags}
+		tel.VetEnd(".", durationMS, exitCode, "")
+		return msgVetDiags{}
 	}
 }
 
@@ -611,6 +626,11 @@ func (m *Model) visibleRows() int {
 
 func (m Model) String() string {
 	return m.buf.String()
+}
+
+// LineCount returns the number of lines in the buffer.
+func (m *Model) LineCount() int {
+	return m.buf.LineCount()
 }
 
 func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
