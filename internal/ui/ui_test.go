@@ -215,8 +215,8 @@ func TestE2E_CursorMovement_k_movesUp(t *testing.T) {
 func TestE2E_CursorMovement_l_movesRight(t *testing.T) {
 	m := newModel(t)
 	m = press(m, "i", "a", "b", "c", "<Esc>") // cursor at col 1 (1-indexed 2) after Esc
-	m = press(m, "0")                           // go to col 0 → 1:1
-	m = press(m, "l")                           // move right → 1:2
+	m = press(m, "0")                         // go to col 0 → 1:1
+	m = press(m, "l")                         // move right → 1:2
 
 	status := statusLine(m)
 	if !strings.Contains(status, "1:2") {
@@ -446,7 +446,7 @@ func TestE2E_OpenLineAbove_O(t *testing.T) {
 func TestE2E_AppendAfterCursor_a(t *testing.T) {
 	m := newModel(t)
 	m = press(m, "i", "h", "l", "l", "<Esc>") // "hll", cursor at col 1 after Esc
-	m = press(m, "0", "a", "e", "<Esc>")       // 'a' appends after col 0 ('h'), type 'e' → "hell"
+	m = press(m, "0", "a", "e", "<Esc>")      // 'a' appends after col 0 ('h'), type 'e' → "hell"
 
 	if !contentHas(m, "hell") {
 		t.Errorf("expected 'hell' after 'a'+'e', got:\n%s", viewText(m))
@@ -527,26 +527,26 @@ func TestE2E_NormalNavigation_DoesNotMutateBuffer(t *testing.T) {
 	before := bufContent(t, m)
 
 	// Exercise every normal-mode motion in the editor.
-	m = press(m, "g", "g")               // go to top
-	m = press(m, "0")                    // start of line
-	m = press(m, "l", "l", "l")         // right ×3
-	m = press(m, "h", "h")              // left ×2
-	m = press(m, "w")                    // next word
-	m = press(m, "W")                    // next WORD
-	m = press(m, "b")                    // back word
-	m = press(m, "B")                    // back WORD
-	m = press(m, "e")                    // word end
-	m = press(m, "$")                    // end of line
-	m = press(m, "j")                    // down
-	m = press(m, "^")                    // first non-blank
-	m = press(m, "k")                    // up
-	m = press(m, "G")                    // last line
-	m = press(m, "2", "k")              // 2 up (count prefix)
-	m = press(m, "}")                    // forward paragraph
-	m = press(m, "{")                    // backward paragraph
-	m = press(m, "f", "o")              // find char 'o'
-	m = press(m, ";")                    // repeat find
-	m = press(m, ",")                    // reverse find
+	m = press(m, "g", "g")      // go to top
+	m = press(m, "0")           // start of line
+	m = press(m, "l", "l", "l") // right ×3
+	m = press(m, "h", "h")      // left ×2
+	m = press(m, "w")           // next word
+	m = press(m, "W")           // next WORD
+	m = press(m, "b")           // back word
+	m = press(m, "B")           // back WORD
+	m = press(m, "e")           // word end
+	m = press(m, "$")           // end of line
+	m = press(m, "j")           // down
+	m = press(m, "^")           // first non-blank
+	m = press(m, "k")           // up
+	m = press(m, "G")           // last line
+	m = press(m, "2", "k")      // 2 up (count prefix)
+	m = press(m, "}")           // forward paragraph
+	m = press(m, "{")           // backward paragraph
+	m = press(m, "f", "o")      // find char 'o'
+	m = press(m, ";")           // repeat find
+	m = press(m, ",")           // reverse find
 
 	after := bufContent(t, m)
 

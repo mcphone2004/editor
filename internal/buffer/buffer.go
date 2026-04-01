@@ -36,8 +36,8 @@ type Buffer struct {
 
 	// Gap buffer — active only while in insert mode.
 	// hotRow/hotCol track where in the document the gap was "opened".
-	gap    *gap.Buffer
-	hotRow int
+	gap       *gap.Buffer
+	hotRow    int
 	hotActive bool
 
 	// Optional Postgres-backed undo store.  nil when postgres is unavailable.
@@ -51,7 +51,7 @@ func New() *Buffer {
 
 // Open reads a file into a new Buffer.
 func Open(path string) (*Buffer, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is user-provided file argument
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func Open(path string) (*Buffer, error) {
 
 // OpenWithUndo is like Open but also connects a Postgres undo store.
 // dsn is a libpq connection string, e.g.
-// "host=localhost user=postgres dbname=editor sslmode=disable"
+// "host=localhost user=postgres dbname=editor sslmode=disable".
 func OpenWithUndo(path, dsn string) (*Buffer, error) {
 	b, err := Open(path)
 	if err != nil {
@@ -80,7 +80,7 @@ func OpenWithUndo(path, dsn string) (*Buffer, error) {
 // Save writes the buffer contents to disk.
 func (b *Buffer) Save() error {
 	b.FlushGap()
-	if err := os.WriteFile(b.Path, []byte(b.table.String()), 0644); err != nil {
+	if err := os.WriteFile(b.Path, []byte(b.table.String()), 0o600); err != nil {
 		return err
 	}
 	b.Modified = false

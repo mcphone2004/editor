@@ -17,30 +17,36 @@ import (
 
 // --- LSP protocol types (subset) ---
 
+// Position represents a zero-based line/character offset in a text document.
 type Position struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`
 }
 
+// Range represents a span in a text document defined by start and end positions.
 type Range struct {
 	Start Position `json:"start"`
 	End   Position `json:"end"`
 }
 
+// Location represents a file URI and a range within that file.
 type Location struct {
 	URI   string `json:"uri"`
 	Range Range  `json:"range"`
 }
 
+// TextDocumentIdentifier identifies a text document by URI.
 type TextDocumentIdentifier struct {
 	URI string `json:"uri"`
 }
 
+// VersionedTextDocumentIdentifier identifies a text document with a version number.
 type VersionedTextDocumentIdentifier struct {
 	URI     string `json:"uri"`
 	Version int    `json:"version"`
 }
 
+// TextDocumentPositionParams are parameters for a text-document position request.
 type TextDocumentPositionParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
 	Position     Position               `json:"position"`
@@ -54,6 +60,7 @@ const (
 	SeverityHint    = 4
 )
 
+// DiagnosticMsg is a single LSP diagnostic message.
 type DiagnosticMsg struct {
 	Range    Range  `json:"range"`
 	Severity int    `json:"severity"`
@@ -61,21 +68,25 @@ type DiagnosticMsg struct {
 	Source   string `json:"source"`
 }
 
+// PublishDiagnosticsParams are the params for a textDocument/publishDiagnostics notification.
 type PublishDiagnosticsParams struct {
 	URI         string          `json:"uri"`
 	Diagnostics []DiagnosticMsg `json:"diagnostics"`
 }
 
+// HoverResult is the result of a textDocument/hover request.
 type HoverResult struct {
 	Contents MarkupContent `json:"contents"`
 	Range    *Range        `json:"range,omitempty"`
 }
 
+// MarkupContent represents human-readable content with a kind (plaintext or markdown).
 type MarkupContent struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
 }
 
+// CompletionItem is a single completion suggestion.
 type CompletionItem struct {
 	Label         string `json:"label"`
 	Kind          int    `json:"kind"`
@@ -84,6 +95,7 @@ type CompletionItem struct {
 	InsertText    string `json:"insertText"`
 }
 
+// CompletionList is a list of completion items.
 type CompletionList struct {
 	IsIncomplete bool             `json:"isIncomplete"`
 	Items        []CompletionItem `json:"items"`
@@ -265,7 +277,8 @@ func (s *Session) Notifications() <-chan Notification {
 // ParseDiagnostics decodes a publishDiagnostics notification.
 func ParseDiagnostics(n Notification) (PublishDiagnosticsParams, error) {
 	var p PublishDiagnosticsParams
-	return p, json.Unmarshal(n.Params, &p)
+	err := json.Unmarshal(n.Params, &p)
+	return p, err
 }
 
 // URIToPath converts a file:// URI to an OS path.

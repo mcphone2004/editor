@@ -62,7 +62,7 @@ func TestSave_roundTrip(t *testing.T) {
 	if err := buf.Save(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // test using temp file path
 	if err != nil {
 		t.Fatal(err)
 	}

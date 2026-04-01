@@ -13,6 +13,7 @@
 package piece
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -40,13 +41,13 @@ type pgEntry struct {
 // OpenPgStore connects to postgres at dsn, creates tables if needed, and
 // returns a PgStore keyed by filePath.
 //
-// dsn format: "host=localhost user=postgres dbname=editor sslmode=disable"
+// dsn format: "host=localhost user=postgres dbname=editor sslmode=disable".
 func OpenPgStore(dsn, filePath string, initial Snapshot) (*PgStore, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgstore: open: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		return nil, fmt.Errorf("pgstore: ping: %w", err)
 	}
 	if err := migrate(db); err != nil {
@@ -132,7 +133,7 @@ func (s *PgStore) push(snap Snapshot) error {
 		return err
 	}
 	var id int64
-	err = s.db.QueryRow(
+	err = s.db.QueryRowContext(context.Background(),
 		`INSERT INTO editor_undo_entries (file_id, sequence, snapshot, created_at)
 		 VALUES ($1, $2, $3, $4) RETURNING id`,
 		s.fileID,
@@ -149,7 +150,7 @@ func (s *PgStore) push(snap Snapshot) error {
 }
 
 func (s *PgStore) load() error {
-	rows, err := s.db.Query(
+	rows, err := s.db.QueryContext(context.Background(),
 		`SELECT id, snapshot FROM editor_undo_entries
 		 WHERE file_id = $1 ORDER BY sequence ASC`,
 		s.fileID,
@@ -182,7 +183,7 @@ func (s *PgStore) load() error {
 
 func (s *PgStore) deleteEntries(ids []int64) error {
 	for _, id := range ids {
-		if _, err := s.db.Exec(`DELETE FROM editor_undo_entries WHERE id = $1`, id); err != nil {
+		if _, err := s.db.ExecContext(context.Background(), `DELETE FROM editor_undo_entries WHERE id = $1`, id); err != nil {
 			return fmt.Errorf("pgstore: delete entry %d: %w", id, err)
 		}
 	}
@@ -197,7 +198,7 @@ type snapshotJSON struct {
 }
 
 func marshalSnapshot(s Snapshot) ([]byte, error) {
-	return json.Marshal(snapshotJSON{Pieces: s.Pieces, AddLen: s.AddLen})
+	return json.Marshal(snapshotJSON(s))
 }
 
 func unmarshalSnapshot(data []byte) (Snapshot, error) {
@@ -205,13 +206,13 @@ func unmarshalSnapshot(data []byte) (Snapshot, error) {
 	if err := json.Unmarshal(data, &v); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Pieces: v.Pieces, AddLen: v.AddLen}, nil
+	return Snapshot(v), nil
 }
 
 // --- schema ---
 
 func migrate(db *sql.DB) error {
-	_, err := db.Exec(`
+	_, err := db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS editor_files (
 			id         BIGSERIAL PRIMARY KEY,
 			path       TEXT NOT NULL,
@@ -234,7 +235,7 @@ func migrate(db *sql.DB) error {
 }
 
 func upsertFile(db *sql.DB, path string) (int64, error) {
-	_, err := db.Exec(
+	_, err := db.ExecContext(context.Background(),
 		`INSERT INTO editor_files (path) VALUES ($1) ON CONFLICT (path) DO NOTHING`,
 		path,
 	)
@@ -242,6 +243,6 @@ func upsertFile(db *sql.DB, path string) (int64, error) {
 		return 0, err
 	}
 	var id int64
-	err = db.QueryRow(`SELECT id FROM editor_files WHERE path = $1`, path).Scan(&id)
+	err = db.QueryRowContext(context.Background(), `SELECT id FROM editor_files WHERE path = $1`, path).Scan(&id)
 	return id, err
 }

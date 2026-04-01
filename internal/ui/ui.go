@@ -6,6 +6,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -141,7 +142,6 @@ func (m *Model) Init() tea.Cmd {
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -378,11 +378,11 @@ func (m *Model) renderStatus() string {
 
 func (m *Model) renderCompletion() string {
 	var sb strings.Builder
-	max := 8
-	if len(m.completions) < max {
-		max = len(m.completions)
+	maxItems := 8
+	if len(m.completions) < maxItems {
+		maxItems = len(m.completions)
 	}
-	for i := 0; i < max; i++ {
+	for i := 0; i < maxItems; i++ {
 		label := m.completions[i].Label
 		if len(label) > 30 {
 			label = label[:30]
@@ -468,23 +468,24 @@ func (m *Model) listenNotifications() tea.Cmd {
 	ch := m.lsp.Notifications()
 	return func() tea.Msg {
 		for n := range ch {
-			if n.Method == "textDocument/publishDiagnostics" {
-				p, err := lsp.ParseDiagnostics(n)
-				if err != nil {
-					continue
-				}
-				var diags []editor.Diagnostic
-				for _, d := range p.Diagnostics {
-					diags = append(diags, editor.Diagnostic{
-						Row:      d.Range.Start.Line,
-						Col:      d.Range.Start.Character,
-						Severity: d.Severity,
-						Message:  d.Message,
-						Source:   d.Source,
-					})
-				}
-				return msgDiagnostics{path: lsp.URIToPath(p.URI), diags: diags}
+			if n.Method != "textDocument/publishDiagnostics" {
+				continue
 			}
+			p, err := lsp.ParseDiagnostics(n)
+			if err != nil {
+				continue
+			}
+			diags := make([]editor.Diagnostic, 0, len(p.Diagnostics))
+			for _, d := range p.Diagnostics {
+				diags = append(diags, editor.Diagnostic{
+					Row:      d.Range.Start.Line,
+					Col:      d.Range.Start.Character,
+					Severity: d.Severity,
+					Message:  d.Message,
+					Source:   d.Source,
+				})
+			}
+			return msgDiagnostics{path: lsp.URIToPath(p.URI), diags: diags}
 		}
 		return nil
 	}
@@ -498,7 +499,7 @@ func (m *Model) runVet() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		out, err := exec.Command("go", "vet", "./...").
+		out, err := exec.CommandContext(context.Background(), "go", "vet", "./...").
 			CombinedOutput()
 		if err == nil {
 			return msgVetDiags{}
@@ -576,8 +577,7 @@ func (m *Model) applyCompletion() {
 
 func (m *Model) mergeDiagnostics(path string, lspDiags []editor.Diagnostic) {
 	// Replace LSP diags for the given path and merge vet diags.
-	all := append(lspDiags, m.vetDiags...)
-	m.ed.SetDiagnostics(all)
+	m.ed.SetDiagnostics(append(lspDiags, m.vetDiags...))
 	_ = path
 }
 
@@ -612,7 +612,6 @@ func (m *Model) visibleRows() int {
 func (m Model) String() string {
 	return m.buf.String()
 }
-
 
 func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 	if linewise {
