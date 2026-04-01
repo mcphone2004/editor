@@ -24,7 +24,9 @@ func newBuf(t *testing.T, content string) *buffer.Buffer {
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	buf, err := buffer.Open(f.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +62,7 @@ func TestSave_roundTrip(t *testing.T) {
 	if err := buf.Save(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // test using temp file path
 	if err != nil {
 		t.Fatal(err)
 	}

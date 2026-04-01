@@ -51,10 +51,10 @@ func New() *Recorder {
 			return &Recorder{}
 		}
 		dir := filepath.Join(home, ".cache", "editor")
-		_ = os.MkdirAll(dir, 0755)
+		_ = os.MkdirAll(dir, 0o750)
 		path = filepath.Join(dir, "telemetry.jsonl")
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // known telemetry path
 	if err != nil {
 		return &Recorder{}
 	}
