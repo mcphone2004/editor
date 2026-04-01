@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/anthonybrice/editor/internal/lsp"
 	"github.com/anthonybrice/editor/internal/telemetry"
@@ -20,7 +21,13 @@ func main() {
 	var lspSession *lsp.Session
 	rootDir := "."
 	if path != "" {
-		rootDir = path
+		// Use the directory containing the file, not the file itself.
+		info, _ := os.Stat(path) //nolint:gosec // user-supplied CLI path
+		if info != nil && info.IsDir() {
+			rootDir = path
+		} else {
+			rootDir = filepath.Dir(path)
+		}
 	}
 	sess, err := lsp.StartGopls(rootDir)
 	if err != nil {
