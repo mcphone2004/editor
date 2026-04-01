@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/anthonybrice/editor/internal/buffer"
 )
@@ -13,8 +14,9 @@ import (
 // Mode represents the current vim editing mode.
 type Mode int
 
+// Mode constants for the editor's editing modes.
 const (
-	ModeNormal  Mode = iota
+	ModeNormal Mode = iota
 	ModeInsert
 	ModeVisual
 	ModeVisualLine
@@ -62,12 +64,12 @@ type Editor struct {
 	visualAnchor Pos
 
 	// Pending operator/count state for normal-mode key chaining.
-	pendingCount  string
-	pendingOp     rune   // 'd', 'c', 'y', 'r', 'g', 'z', or 0
-	pendingOpStr  string // multi-char ops like "gg", "gc"
-	lastFindChar  rune
-	lastFindFwd   bool
-	lastFindTill  bool
+	pendingCount string
+	pendingOp    rune   // 'd', 'c', 'y', 'r', 'g', 'z', or 0
+	pendingOpStr string // multi-char ops like "gg", "gc"
+	lastFindChar rune
+	lastFindFwd  bool
+	lastFindTill bool
 
 	// Registers (default register is '"').
 	register Register
@@ -121,7 +123,7 @@ func (e *Editor) GetDiagnostics() []Diagnostic { return e.diagnostics }
 
 // VisualRange returns the start/end of the current visual selection
 // in canonical (start <= end) order.
-func (e *Editor) VisualRange() (Pos, Pos) {
+func (e *Editor) VisualRange() (start, end Pos) {
 	a, b := e.visualAnchor, e.cursor
 	if a.Row > b.Row || (a.Row == b.Row && a.Col > b.Col) {
 		a, b = b, a
@@ -133,14 +135,14 @@ func (e *Editor) VisualRange() (Pos, Pos) {
 // key is a string like "a", "A", "<C-c>", "<Esc>", "<Enter>", etc.
 func (e *Editor) HandleKey(key string) {
 	switch e.mode {
+	case ModeNormal:
+		e.handleNormal(key)
 	case ModeInsert:
 		e.handleInsert(key)
 	case ModeCommand:
 		e.handleCommand(key)
 	case ModeVisual, ModeVisualLine:
 		e.handleVisual(key)
-	default:
-		e.handleNormal(key)
 	}
 }
 
@@ -212,7 +214,8 @@ func (e *Editor) handleNormal(key string) {
 
 	// Find char.
 	case "f", "F", "t", "T":
-		e.pendingOp = []rune(key)[0]
+		r, _ := utf8.DecodeRuneInString(key)
+		e.pendingOp = r
 
 	// Repeat find.
 	case ";":
@@ -395,7 +398,7 @@ func (e *Editor) handlePendingOp(key string, count int) {
 		if len(key) != 1 {
 			return
 		}
-		ch := []rune(key)[0]
+		ch, _ := utf8.DecodeRuneInString(key)
 		fwd := op == 'f' || op == 't'
 		till := op == 't' || op == 'T'
 		e.lastFindChar = ch
@@ -410,7 +413,8 @@ func (e *Editor) handlePendingOp(key string, count int) {
 	if op == 'r' {
 		if len(key) == 1 {
 			e.buf.DeleteRune(e.cursor.Row, e.cursor.Col)
-			e.buf.Insert(e.cursor.Row, e.cursor.Col, []rune(key)[0])
+			rr, _ := utf8.DecodeRuneInString(key)
+			e.buf.Insert(e.cursor.Row, e.cursor.Col, rr)
 		}
 		return
 	}
@@ -435,7 +439,7 @@ func (e *Editor) handlePendingOp(key string, count int) {
 	}
 
 	// Indent operators.
-	if op == '>' || op == '<' {
+	if op == '>' || op == '<' { //nolint:nestif // inherently nested dispatch logic
 		if key == string(op) {
 			// Double: operate on current line(s).
 			n := max(count, 1)
@@ -458,7 +462,7 @@ func (e *Editor) handlePendingOp(key string, count int) {
 	}
 
 	// d/c/y with doubled key = line-wise.
-	if (op == 'd' || op == 'c' || op == 'y') && key == string(op) {
+	if (op == 'd' || op == 'c' || op == 'y') && key == string(op) { //nolint:nestif // inherently nested dispatch logic
 		n := max(count, 1)
 		r1 := e.cursor.Row
 		r2 := r1 + n - 1
@@ -491,7 +495,7 @@ func (e *Editor) handlePendingOp(key string, count int) {
 	if e.pendingOpStr == "i" || e.pendingOpStr == "a" {
 		inner := e.pendingOpStr == "i"
 		e.pendingOpStr = ""
-		ch := []rune(key)[0]
+		ch, _ := utf8.DecodeRuneInString(key)
 		if toFn, ok := textObjects[ch]; ok {
 			r1, c1, r2, c2, linewise, ok2 := toFn(e, inner)
 			if ok2 {
@@ -537,7 +541,7 @@ func (e *Editor) applyOperatorToMotion(op rune, dst Pos, linewise bool, count in
 }
 
 func (e *Editor) applyOperatorRange(op rune, r1, c1, r2, c2 int, linewise bool) {
-	if linewise {
+	if linewise { //nolint:nestif // inherently nested dispatch logic
 		e.register = Register{Text: e.buf.YankLines(r1, r2-1), Linewise: true}
 		if op != 'y' {
 			e.buf.DeleteLines(r1, r2-1)
@@ -653,7 +657,7 @@ func (e *Editor) handleInsert(key string) {
 
 	default:
 		if len(key) == 1 {
-			r := []rune(key)[0]
+			r, _ := utf8.DecodeRuneInString(key)
 			e.buf.Insert(e.cursor.Row, e.cursor.Col, r)
 			e.cursor.Col++
 			// Auto-close brackets.
@@ -752,7 +756,7 @@ func (e *Editor) handleCommand(key string) {
 		}
 		e.cmdBuf = ""
 	case "<Backspace>":
-		if len(e.cmdBuf) > 0 {
+		if e.cmdBuf != "" {
 			r := []rune(e.cmdBuf)
 			e.cmdBuf = string(r[:len(r)-1])
 		} else {
@@ -870,12 +874,12 @@ func (e *Editor) clampCursor() {
 	if e.cursor.Row < 0 {
 		e.cursor.Row = 0
 	}
-	max := e.buf.LineLen(e.cursor.Row) - 1
-	if max < 0 {
-		max = 0
+	maxCol := e.buf.LineLen(e.cursor.Row) - 1
+	if maxCol < 0 {
+		maxCol = 0
 	}
-	if e.cursor.Col > max {
-		e.cursor.Col = max
+	if e.cursor.Col > maxCol {
+		e.cursor.Col = maxCol
 	}
 }
 
@@ -910,7 +914,7 @@ func leadingWhitespace(s string) string {
 func autoIndent(line string) string {
 	indent := leadingWhitespace(line)
 	trimmed := strings.TrimRight(line, " \t")
-	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == '{' {
+	if trimmed != "" && trimmed[len(trimmed)-1] == '{' {
 		indent += "\t"
 	}
 	return indent

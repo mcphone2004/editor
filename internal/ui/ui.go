@@ -6,6 +6,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 // --- Styles ---
 
+//nolint:gochecknoglobals // lipgloss styles are immutable after init, equivalent to constants
 var (
 	styleLineNum = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
@@ -140,7 +142,6 @@ func (m *Model) Init() tea.Cmd {
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -279,10 +280,18 @@ func (m *Model) View() string {
 		if row < m.buf.LineCount() {
 			line := []rune(m.buf.Line(row))
 			for col, r := range line {
-				ch := string(r)
-				// Clamp display width for wide chars.
-				if utf8.RuneLen(r) == 0 {
+				// Expand tabs to 4 spaces so visual width is stable regardless
+				// of cursor position (a terminal-rendered \t under a styled
+				// cursor collapses to 1 column instead of expanding to the tab
+				// stop, causing the rest of the line to shift).
+				var ch string
+				switch {
+				case r == '\t':
+					ch = "    "
+				case utf8.RuneLen(r) == 0:
 					ch = " "
+				default:
+					ch = string(r)
 				}
 
 				inVisual := isVisual && inVisualRange(row, col, visStart, visEnd, m.ed.Mode() == editor.ModeVisualLine)
@@ -313,7 +322,7 @@ func (m *Model) View() string {
 	switch m.ed.Mode() {
 	case editor.ModeCommand:
 		sb.WriteString(string(m.ed.CmdMode()) + m.ed.CmdBuf())
-	default:
+	case editor.ModeNormal, editor.ModeInsert, editor.ModeVisual, editor.ModeVisualLine:
 		if m.ed.StatusMsg() != "" &&
 			m.ed.StatusMsg() != "quit" &&
 			m.ed.StatusMsg() != "quit!" &&
@@ -342,14 +351,14 @@ func (m *Model) renderStatus() string {
 
 	var modeStyle lipgloss.Style
 	switch m.ed.Mode() {
+	case editor.ModeNormal:
+		modeStyle = styleStatusNormal
 	case editor.ModeInsert:
 		modeStyle = styleStatusInsert
 	case editor.ModeVisual, editor.ModeVisualLine:
 		modeStyle = styleStatusVisual
 	case editor.ModeCommand:
 		modeStyle = styleStatusCommand
-	default:
-		modeStyle = styleStatusNormal
 	}
 
 	left := modeStyle.Render(modeStr) + " " + m.buf.Path
@@ -369,11 +378,11 @@ func (m *Model) renderStatus() string {
 
 func (m *Model) renderCompletion() string {
 	var sb strings.Builder
-	max := 8
-	if len(m.completions) < max {
-		max = len(m.completions)
+	maxItems := 8
+	if len(m.completions) < maxItems {
+		maxItems = len(m.completions)
 	}
-	for i := 0; i < max; i++ {
+	for i := 0; i < maxItems; i++ {
 		label := m.completions[i].Label
 		if len(label) > 30 {
 			label = label[:30]
@@ -459,23 +468,24 @@ func (m *Model) listenNotifications() tea.Cmd {
 	ch := m.lsp.Notifications()
 	return func() tea.Msg {
 		for n := range ch {
-			if n.Method == "textDocument/publishDiagnostics" {
-				p, err := lsp.ParseDiagnostics(n)
-				if err != nil {
-					continue
-				}
-				var diags []editor.Diagnostic
-				for _, d := range p.Diagnostics {
-					diags = append(diags, editor.Diagnostic{
-						Row:      d.Range.Start.Line,
-						Col:      d.Range.Start.Character,
-						Severity: d.Severity,
-						Message:  d.Message,
-						Source:   d.Source,
-					})
-				}
-				return msgDiagnostics{path: lsp.URIToPath(p.URI), diags: diags}
+			if n.Method != "textDocument/publishDiagnostics" {
+				continue
 			}
+			p, err := lsp.ParseDiagnostics(n)
+			if err != nil {
+				continue
+			}
+			diags := make([]editor.Diagnostic, 0, len(p.Diagnostics))
+			for _, d := range p.Diagnostics {
+				diags = append(diags, editor.Diagnostic{
+					Row:      d.Range.Start.Line,
+					Col:      d.Range.Start.Character,
+					Severity: d.Severity,
+					Message:  d.Message,
+					Source:   d.Source,
+				})
+			}
+			return msgDiagnostics{path: lsp.URIToPath(p.URI), diags: diags}
 		}
 		return nil
 	}
@@ -489,7 +499,7 @@ func (m *Model) runVet() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		out, err := exec.Command("go", "vet", "./...").
+		out, err := exec.CommandContext(context.Background(), "go", "vet", "./...").
 			CombinedOutput()
 		if err == nil {
 			return msgVetDiags{}
@@ -517,8 +527,8 @@ func parseVetOutput(output, _ string) []editor.Diagnostic {
 		if len(rest) < 3 {
 			continue
 		}
-		fmt.Sscanf(rest[1], "%d", &row)
-		fmt.Sscanf(rest[2], "%d", &col)
+		_, _ = fmt.Sscanf(rest[1], "%d", &row)
+		_, _ = fmt.Sscanf(rest[2], "%d", &col)
 		if len(rest) == 4 {
 			msg = strings.TrimSpace(rest[3])
 		}
@@ -567,8 +577,7 @@ func (m *Model) applyCompletion() {
 
 func (m *Model) mergeDiagnostics(path string, lspDiags []editor.Diagnostic) {
 	// Replace LSP diags for the given path and merge vet diags.
-	all := append(lspDiags, m.vetDiags...)
-	m.ed.SetDiagnostics(all)
+	m.ed.SetDiagnostics(append(lspDiags, m.vetDiags...))
 	_ = path
 }
 
@@ -604,7 +613,6 @@ func (m Model) String() string {
 	return m.buf.String()
 }
 
-
 func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 	if linewise {
 		return row >= start.Row && row <= end.Row
@@ -625,7 +633,7 @@ func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 // engine uses: printable runes pass through as-is; special keys become
 // "<Name>" strings.
 func keyString(msg tea.KeyMsg) string {
-	switch msg.Type {
+	switch msg.Type { //nolint:exhaustive // intentionally handles only the subset of keys the editor uses
 	case tea.KeyRunes:
 		return string(msg.Runes)
 	case tea.KeyEnter:

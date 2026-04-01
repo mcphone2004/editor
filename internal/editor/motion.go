@@ -24,14 +24,14 @@ func motionLeft(e *Editor) (Pos, bool) {
 
 func motionRight(e *Editor) (Pos, bool) {
 	p := e.cursor
-	max := e.buf.LineLen(p.Row) - 1
+	maxCol := e.buf.LineLen(p.Row) - 1
 	if e.mode == ModeInsert {
-		max = e.buf.LineLen(p.Row)
+		maxCol = e.buf.LineLen(p.Row)
 	}
-	if max < 0 {
-		max = 0
+	if maxCol < 0 {
+		maxCol = 0
 	}
-	if p.Col < max {
+	if p.Col < maxCol {
 		p.Col++
 	}
 	return p, false
@@ -56,12 +56,6 @@ func motionDown(e *Editor) (Pos, bool) {
 }
 
 // --- Line motions ---
-
-func motionLineStart(_ *Editor) func(e *Editor) (Pos, bool) {
-	return func(e *Editor) (Pos, bool) {
-		return Pos{e.cursor.Row, 0}, false
-	}
-}
 
 func motionLineEnd(e *Editor) (Pos, bool) {
 	row := e.cursor.Row
@@ -194,10 +188,6 @@ func wordEnd(e *Editor, big bool) (Pos, bool) {
 
 // --- File motions ---
 
-func motionFileStart(e *Editor) (Pos, bool) {
-	return Pos{0, 0}, true
-}
-
 func motionFileEnd(e *Editor) (Pos, bool) {
 	row := e.buf.LineCount() - 1
 	return Pos{row, 0}, true
@@ -222,7 +212,7 @@ func motionFindChar(ch rune, forward, till bool) Motion {
 	return func(e *Editor) (Pos, bool) {
 		row, col := e.cursor.Row, e.cursor.Col
 		line := []rune(e.buf.Line(row))
-		if forward {
+		if forward { //nolint:nestif // inherently nested directional search
 			for i := col + 1; i < len(line); i++ {
 				if line[i] == ch {
 					if till {
@@ -292,22 +282,15 @@ func wordClass(big bool) func(rune) int {
 }
 
 func clampCol(e *Editor, row, col int) int {
-	max := e.buf.LineLen(row) - 1
+	maxCol := e.buf.LineLen(row) - 1
 	if e.mode == ModeInsert {
-		max = e.buf.LineLen(row)
+		maxCol = e.buf.LineLen(row)
 	}
-	if max < 0 {
-		max = 0
+	if maxCol < 0 {
+		maxCol = 0
 	}
-	if col > max {
-		return max
+	if col > maxCol {
+		return maxCol
 	}
 	return col
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

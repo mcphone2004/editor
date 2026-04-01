@@ -3,31 +3,31 @@ package editor
 // TextObject resolves an inclusive range [start, end) within the buffer
 // relative to the current cursor. inner=true means "inner" (i), inner=false
 // means "around" (a).
-type TextObject func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool)
+type TextObject func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool)
 
-var textObjects = map[rune]TextObject{
-	'w': toWord,
-	'W': toWordBig,
-	'"': toQuote('"'),
+var textObjects = map[rune]TextObject{ //nolint:gochecknoglobals // constant lookup table equivalent
+	'w':  toWord,
+	'W':  toWordBig,
+	'"':  toQuote('"'),
 	'\'': toQuote('\''),
-	'`': toQuote('`'),
-	'(': toPair('(', ')'),
-	')': toPair('(', ')'),
-	'{': toPair('{', '}'),
-	'}': toPair('{', '}'),
-	'[': toPair('[', ']'),
-	']': toPair('[', ']'),
-	'<': toPair('<', '>'),
-	'>': toPair('<', '>'),
-	'p': toParagraph,
+	'`':  toQuote('`'),
+	'(':  toPair('(', ')'),
+	')':  toPair('(', ')'),
+	'{':  toPair('{', '}'),
+	'}':  toPair('{', '}'),
+	'[':  toPair('[', ']'),
+	']':  toPair('[', ']'),
+	'<':  toPair('<', '>'),
+	'>':  toPair('<', '>'),
+	'p':  toParagraph,
 }
 
-func toWord(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) {
+func toWord(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	line := []rune(e.buf.Line(row))
 	col := e.cursor.Col
 	if col >= len(line) {
-		return
+		return //nolint:nakedret // early-exit pattern with zero values
 	}
 	isW := wordClass(false)
 	class := isW(line[col])
@@ -57,7 +57,7 @@ func toWord(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) 
 	return row, start, row, end, false, true
 }
 
-func toWordBig(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) {
+func toWordBig(e *Editor, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	line := []rune(e.buf.Line(row))
 	col := e.cursor.Col
@@ -79,7 +79,7 @@ func toWordBig(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok boo
 }
 
 func toQuote(q rune) TextObject {
-	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) {
+	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
 		row := e.cursor.Row
 		line := []rune(e.buf.Line(row))
 		col := e.cursor.Col
@@ -102,7 +102,7 @@ func toQuote(q rune) TextObject {
 			}
 		}
 		if left < 0 {
-			return
+			return //nolint:nakedret // early-exit pattern with zero values
 		}
 		right := -1
 		for i := left + 1; i < len(line); i++ {
@@ -112,7 +112,7 @@ func toQuote(q rune) TextObject {
 			}
 		}
 		if right < 0 {
-			return
+			return //nolint:nakedret // early-exit pattern with zero values
 		}
 		if inner {
 			return row, left + 1, row, right, false, true
@@ -121,8 +121,8 @@ func toQuote(q rune) TextObject {
 	}
 }
 
-func toPair(open, close rune) TextObject {
-	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) {
+func toPair(open, closeRune rune) TextObject {
+	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
 		row, col := e.cursor.Row, e.cursor.Col
 		// Search backwards for open.
 		depth := 0
@@ -136,7 +136,7 @@ func toPair(open, close rune) TextObject {
 			}
 			for c := startC; c >= 0; c-- {
 				ch := line[c]
-				if ch == close {
+				if ch == closeRune {
 					depth++
 				} else if ch == open {
 					if depth == 0 {
@@ -148,9 +148,9 @@ func toPair(open, close rune) TextObject {
 			}
 		}
 		if lr < 0 {
-			return
+			return //nolint:nakedret // early-exit pattern with zero values
 		}
-		// Search forwards for matching close.
+		// Search forwards for matching closeRune.
 		depth = 0
 		rr, rc := -1, -1
 	outer2:
@@ -164,7 +164,7 @@ func toPair(open, close rune) TextObject {
 				ch := line[c]
 				if ch == open {
 					depth++
-				} else if ch == close {
+				} else if ch == closeRune {
 					depth--
 					if depth == 0 {
 						rr, rc = r, c
@@ -174,7 +174,7 @@ func toPair(open, close rune) TextObject {
 			}
 		}
 		if rr < 0 {
-			return
+			return //nolint:nakedret // early-exit pattern with zero values
 		}
 		if inner {
 			// Contents between the delimiters.
@@ -184,7 +184,7 @@ func toPair(open, close rune) TextObject {
 	}
 }
 
-func toParagraph(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise bool, ok bool) {
+func toParagraph(e *Editor, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	start := row
 	for start > 0 && e.buf.Line(start-1) != "" {

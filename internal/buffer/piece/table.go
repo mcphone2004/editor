@@ -17,7 +17,7 @@ import (
 	"strings"
 )
 
-// which buffer a piece references
+// which buffer a piece references.
 const (
 	bufOriginal = 0
 	bufAdd      = 1
@@ -32,8 +32,8 @@ type Piece struct {
 
 // Snapshot captures a complete piece table state for undo/redo.
 type Snapshot struct {
-	Pieces    []Piece
-	AddLen    int // how many runes of the add buffer are in use
+	Pieces []Piece
+	AddLen int // how many runes of the add buffer are in use
 }
 
 // Table is the piece table document.
@@ -214,13 +214,14 @@ func (t *Table) Insert(pos int, text []rune) {
 	newPiece := Piece{Which: bufAdd, Start: addStart, Length: len(text)}
 
 	idx, offset := t.findPiece(pos)
-	if idx == len(t.pieces) {
+	switch {
+	case idx == len(t.pieces):
 		// Append at end.
 		t.pieces = append(t.pieces, newPiece)
-	} else if offset == 0 {
+	case offset == 0:
 		// Insert before piece idx.
 		t.pieces = insert(t.pieces, idx, newPiece)
-	} else {
+	default:
 		// Split piece idx at offset.
 		left, right := t.splitPiece(idx, offset)
 		t.pieces = spliceIn(t.pieces, idx, left, newPiece, right)
@@ -265,9 +266,10 @@ func (t *Table) Delete(start, end int) {
 // The text should NOT include a trailing newline; one is added automatically.
 func (t *Table) InsertLine(row int, text string) {
 	var pos int
-	if row < 0 {
+	switch {
+	case row < 0:
 		pos = 0
-	} else if row >= t.LineCount() {
+	case row >= t.LineCount():
 		pos = t.Len()
 		// Ensure the document ends with a newline before appending.
 		if pos > 0 {
@@ -277,7 +279,7 @@ func (t *Table) InsertLine(row int, text string) {
 				pos++
 			}
 		}
-	} else {
+	default:
 		// Insert before the newline at end of row (i.e. at LineEnd(row)).
 		pos = t.LineEnd(row)
 		t.Insert(pos, []rune("\n"+text))
@@ -308,7 +310,7 @@ func (t *Table) buf(p Piece) []rune {
 // findPiece returns the piece index and offset within that piece that
 // corresponds to document rune position pos.
 // Returns (len(pieces), 0) if pos is at or past the end.
-func (t *Table) findPiece(pos int) (idx int, offset int) {
+func (t *Table) findPiece(pos int) (idx, offset int) {
 	cur := 0
 	for i, p := range t.pieces {
 		if cur+p.Length > pos {
@@ -320,10 +322,10 @@ func (t *Table) findPiece(pos int) (idx int, offset int) {
 }
 
 // splitPiece splits pieces[idx] at offset, returning the two halves.
-func (t *Table) splitPiece(idx, offset int) (Piece, Piece) {
+func (t *Table) splitPiece(idx, offset int) (left, right Piece) {
 	p := t.pieces[idx]
-	left := Piece{p.Which, p.Start, offset}
-	right := Piece{p.Which, p.Start + offset, p.Length - offset}
+	left = Piece{p.Which, p.Start, offset}
+	right = Piece{p.Which, p.Start + offset, p.Length - offset}
 	return left, right
 }
 
