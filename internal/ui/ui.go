@@ -666,7 +666,7 @@ func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 // engine uses: printable runes pass through as-is; special keys become
 // "<Name>" strings.
 func keyString(msg tea.KeyMsg) string {
-	switch msg.Type { //nolint:exhaustive // intentionally handles only the subset of keys the editor uses
+	switch msg.Type { //nolint:exhaustive // only handles the subset of keys the editor uses
 	case tea.KeyRunes:
 		return string(msg.Runes)
 	case tea.KeyEnter:

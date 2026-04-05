@@ -104,6 +104,10 @@ func (c *Client) CallCtx(ctx context.Context, method string, params, result any)
 	ch := make(chan *response, 1)
 
 	c.mu.Lock()
+	if c.pending == nil {
+		c.mu.Unlock()
+		return fmt.Errorf("lsp: connection already closed")
+	}
 	c.pending[id] = ch
 	c.mu.Unlock()
 

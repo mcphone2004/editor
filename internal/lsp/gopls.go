@@ -115,7 +115,7 @@ type Session struct {
 // rootDir should be the workspace root (e.g. the module root).
 // ctx controls the timeout for the initialize handshake; use context.WithTimeout.
 func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
-	c, err := Start(ctx, "gopls", "serve")
+	c, err := Start(context.Background(), "gopls", "serve") //nolint:contextcheck // subprocess lifetime outlives the init timeout intentionally
 	if err != nil {
 		return nil, fmt.Errorf("gopls: start: %w", err)
 	}
