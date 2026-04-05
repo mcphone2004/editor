@@ -28,7 +28,7 @@ EDITOR_TEST_DSN="host=localhost user=postgres dbname=editor sslmode=disable" \
 
 Disable telemetry during development:
 ```sh
-EDITOR_TELEMETRY=off ./editor myfile.go
+EDITOR_TELEMETRY=off ./bin/editor myfile.go
 ```
 
 ---

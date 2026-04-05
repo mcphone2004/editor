@@ -1,4 +1,4 @@
-BINARY := editor
+BINARY := bin/editor
 MODULE  := github.com/anthonybrice/editor
 
 .PHONY: all build test test-unit vet lint clean
