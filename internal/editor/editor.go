@@ -54,9 +54,24 @@ type Diagnostic struct {
 	Source   string
 }
 
-// Editor is the complete state of one open file.
-type Editor struct {
-	buf    *buffer.Buffer
+// Editor is the interface for the complete state of one open file.
+type Editor interface {
+	Buf() buffer.Buffer
+	Mode() Mode
+	Cursor() Pos
+	VisualAnchor() Pos
+	VisualRange() (start, end Pos)
+	CmdBuf() string
+	CmdMode() rune
+	StatusMsg() string
+	SetDiagnostics(d []Diagnostic)
+	GetDiagnostics() []Diagnostic
+	HandleKey(key string)
+}
+
+// editorState is the concrete state of one open file.
+type editorState struct {
+	buf    buffer.Buffer
 	mode   Mode
 	cursor Pos
 
@@ -90,40 +105,40 @@ type Editor struct {
 }
 
 // New creates an Editor for the given buffer.
-func New(buf *buffer.Buffer) *Editor {
-	return &Editor{buf: buf, mode: ModeNormal, searchForward: true}
+func New(buf buffer.Buffer) Editor {
+	return &editorState{buf: buf, mode: ModeNormal, searchForward: true}
 }
 
 // Buf exposes the underlying buffer (read-only access for the UI).
-func (e *Editor) Buf() *buffer.Buffer { return e.buf }
+func (e *editorState) Buf() buffer.Buffer { return e.buf }
 
 // Mode returns the current mode.
-func (e *Editor) Mode() Mode { return e.mode }
+func (e *editorState) Mode() Mode { return e.mode }
 
 // Cursor returns the current cursor position.
-func (e *Editor) Cursor() Pos { return e.cursor }
+func (e *editorState) Cursor() Pos { return e.cursor }
 
 // VisualAnchor returns the visual mode anchor.
-func (e *Editor) VisualAnchor() Pos { return e.visualAnchor }
+func (e *editorState) VisualAnchor() Pos { return e.visualAnchor }
 
 // CmdBuf returns the current command-line buffer contents.
-func (e *Editor) CmdBuf() string { return e.cmdBuf }
+func (e *editorState) CmdBuf() string { return e.cmdBuf }
 
 // CmdMode returns ':' or '/' depending on which command mode is active.
-func (e *Editor) CmdMode() rune { return e.cmdMode }
+func (e *editorState) CmdMode() rune { return e.cmdMode }
 
 // StatusMsg returns the current status message (empty when none).
-func (e *Editor) StatusMsg() string { return e.statusMsg }
+func (e *editorState) StatusMsg() string { return e.statusMsg }
 
 // SetDiagnostics replaces the current diagnostic list.
-func (e *Editor) SetDiagnostics(d []Diagnostic) { e.diagnostics = d }
+func (e *editorState) SetDiagnostics(d []Diagnostic) { e.diagnostics = d }
 
 // GetDiagnostics returns the current diagnostics.
-func (e *Editor) GetDiagnostics() []Diagnostic { return e.diagnostics }
+func (e *editorState) GetDiagnostics() []Diagnostic { return e.diagnostics }
 
 // VisualRange returns the start/end of the current visual selection
 // in canonical (start <= end) order.
-func (e *Editor) VisualRange() (start, end Pos) {
+func (e *editorState) VisualRange() (start, end Pos) {
 	a, b := e.visualAnchor, e.cursor
 	if a.Row > b.Row || (a.Row == b.Row && a.Col > b.Col) {
 		a, b = b, a
@@ -133,7 +148,7 @@ func (e *Editor) VisualRange() (start, end Pos) {
 
 // HandleKey processes a single key event and updates state.
 // key is a string like "a", "A", "<C-c>", "<Esc>", "<Enter>", etc.
-func (e *Editor) HandleKey(key string) {
+func (e *editorState) HandleKey(key string) {
 	switch e.mode {
 	case ModeNormal:
 		e.handleNormal(key)
@@ -148,7 +163,8 @@ func (e *Editor) HandleKey(key string) {
 
 // --- Normal mode ---
 
-func (e *Editor) handleNormal(key string) {
+//nolint:maintidx // vim normal-mode dispatch is inherently a large switch; splitting it adds indirection without clarity
+func (e *editorState) handleNormal(key string) {
 	e.statusMsg = ""
 
 	// Count accumulation.
@@ -261,6 +277,7 @@ func (e *Editor) handleNormal(key string) {
 
 	// Delete char before cursor (X).
 	case "X":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		n := max(count, 1)
 		for i := 0; i < n; i++ {
 			e.cursor.Row, e.cursor.Col = e.buf.DeleteBack(e.cursor.Row, e.cursor.Col)
@@ -268,12 +285,14 @@ func (e *Editor) handleNormal(key string) {
 
 	// Paste.
 	case "p":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		n := max(count, 1)
 		for i := 0; i < n; i++ {
 			e.cursor.Row, e.cursor.Col = e.buf.PasteAfter(
 				e.cursor.Row, e.cursor.Col, e.register.Text, e.register.Linewise)
 		}
 	case "P":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		n := max(count, 1)
 		for i := 0; i < n; i++ {
 			e.cursor.Row, e.cursor.Col = e.buf.PasteBefore(
@@ -282,6 +301,7 @@ func (e *Editor) handleNormal(key string) {
 
 	// Join lines.
 	case "J":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		n := max(count, 1)
 		for i := 0; i < n; i++ {
 			row := e.cursor.Row
@@ -333,6 +353,7 @@ func (e *Editor) handleNormal(key string) {
 		e.buf.DeleteRune(e.cursor.Row, e.cursor.Col)
 		e.setMode(ModeInsert)
 	case "S":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		e.buf.DeleteLines(e.cursor.Row, e.cursor.Row)
 		e.buf.InsertLineAbove(e.cursor.Row)
 		e.cursor.Col = 0
@@ -346,11 +367,21 @@ func (e *Editor) handleNormal(key string) {
 		e.visualAnchor = e.cursor
 		e.setMode(ModeVisualLine)
 
-	// Undo/redo placeholder (requires undo stack — deferred).
+	// Undo/redo.
 	case "u":
-		e.statusMsg = "undo not yet implemented"
+		if row, col, ok := e.buf.Undo(); ok {
+			e.cursor = Pos{row, col}
+			e.clampCursor()
+		} else {
+			e.statusMsg = "already at oldest change"
+		}
 	case "<C-r>":
-		e.statusMsg = "redo not yet implemented"
+		if row, col, ok := e.buf.Redo(); ok {
+			e.cursor = Pos{row, col}
+			e.clampCursor()
+		} else {
+			e.statusMsg = "already at newest change"
+		}
 
 	// Command mode.
 	case ":":
@@ -389,7 +420,7 @@ func (e *Editor) handleNormal(key string) {
 	}
 }
 
-func (e *Editor) handlePendingOp(key string, count int) {
+func (e *editorState) handlePendingOp(key string, count int) {
 	op := e.pendingOp
 	e.pendingOp = 0
 
@@ -514,7 +545,7 @@ func (e *Editor) handlePendingOp(key string, count int) {
 	e.applyOperatorToMotion(op, dst, linewise, max(count, 1))
 }
 
-func (e *Editor) applyOperatorToMotion(op rune, dst Pos, linewise bool, count int) {
+func (e *editorState) applyOperatorToMotion(op rune, dst Pos, linewise bool, count int) {
 	src := e.cursor
 	for i := 1; i < count; i++ {
 		tmp := e.cursor
@@ -540,7 +571,8 @@ func (e *Editor) applyOperatorToMotion(op rune, dst Pos, linewise bool, count in
 	}
 }
 
-func (e *Editor) applyOperatorRange(op rune, r1, c1, r2, c2 int, linewise bool) {
+func (e *editorState) applyOperatorRange(op rune, r1, c1, r2, c2 int, linewise bool) {
+	e.buf.SetCursorHint(r1, c1)
 	if linewise { //nolint:nestif // inherently nested dispatch logic
 		e.register = Register{Text: e.buf.YankLines(r1, r2-1), Linewise: true}
 		if op != 'y' {
@@ -565,7 +597,7 @@ func (e *Editor) applyOperatorRange(op rune, r1, c1, r2, c2 int, linewise bool) 
 	}
 }
 
-func (e *Editor) keyToMotion(key string) Motion {
+func (e *editorState) keyToMotion(key string) Motion {
 	switch key {
 	case "h":
 		return motionLeft
@@ -590,7 +622,7 @@ func (e *Editor) keyToMotion(key string) Motion {
 	case "$":
 		return motionLineEnd
 	case "0":
-		return func(e *Editor) (Pos, bool) { return Pos{e.cursor.Row, 0}, false }
+		return func(e *editorState) (Pos, bool) { return Pos{e.cursor.Row, 0}, false }
 	case "^":
 		return motionFirstNonBlank
 	case "G":
@@ -605,7 +637,7 @@ func (e *Editor) keyToMotion(key string) Motion {
 
 // --- Insert mode ---
 
-func (e *Editor) handleInsert(key string) {
+func (e *editorState) handleInsert(key string) {
 	switch key {
 	case "<Esc>", "<C-c>":
 		// Move cursor back one if not at start.
@@ -615,6 +647,7 @@ func (e *Editor) handleInsert(key string) {
 		e.setMode(ModeNormal)
 
 	case "<Enter>":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		indent := autoIndent(e.buf.Line(e.cursor.Row))
 		e.buf.Newline(e.cursor.Row, e.cursor.Col)
 		e.cursor.Row++
@@ -623,6 +656,7 @@ func (e *Editor) handleInsert(key string) {
 		e.cursor.Col = len([]rune(indent))
 
 	case "<Backspace>":
+		e.buf.SetCursorHint(e.cursor.Row, e.cursor.Col)
 		e.cursor.Row, e.cursor.Col = e.buf.DeleteBack(e.cursor.Row, e.cursor.Col)
 
 	case "<Delete>":
@@ -675,7 +709,7 @@ func (e *Editor) handleInsert(key string) {
 
 // --- Visual mode ---
 
-func (e *Editor) handleVisual(key string) {
+func (e *editorState) handleVisual(key string) {
 	// Count prefix accumulation (e.g. "4l" to move 4 right).
 	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 		e.pendingCount += key
@@ -744,7 +778,7 @@ func (e *Editor) handleVisual(key string) {
 
 // --- Command mode (:, /, ?) ---
 
-func (e *Editor) handleCommand(key string) {
+func (e *editorState) handleCommand(key string) {
 	switch key {
 	case "<Esc>", "<C-c>":
 		e.cmdBuf = ""
@@ -769,7 +803,7 @@ func (e *Editor) handleCommand(key string) {
 	}
 }
 
-func (e *Editor) execCommand() {
+func (e *editorState) execCommand() {
 	if e.cmdMode == '/' || e.cmdMode == '?' {
 		e.lastSearch = e.cmdBuf
 		e.searchForward = e.cmdMode == '/'
@@ -784,10 +818,10 @@ func (e *Editor) execCommand() {
 		if err := e.buf.Save(); err != nil {
 			e.statusMsg = fmt.Sprintf("error: %v", err)
 		} else {
-			e.statusMsg = fmt.Sprintf("written: %s", e.buf.Path)
+			e.statusMsg = fmt.Sprintf("written: %s", e.buf.Path())
 		}
 	case cmd == "q":
-		if e.buf.Modified {
+		if e.buf.Modified() {
 			e.statusMsg = "unsaved changes — use :q! to force quit"
 		} else {
 			e.statusMsg = "quit"
@@ -800,11 +834,11 @@ func (e *Editor) execCommand() {
 	case strings.HasPrefix(cmd, "e "):
 		e.statusMsg = "open:" + strings.TrimSpace(cmd[2:])
 	case strings.HasPrefix(cmd, "w "):
-		e.buf.Path = strings.TrimSpace(cmd[2:])
+		e.buf.SetPath(strings.TrimSpace(cmd[2:]))
 		if err := e.buf.Save(); err != nil {
 			e.statusMsg = fmt.Sprintf("error: %v", err)
 		} else {
-			e.statusMsg = fmt.Sprintf("written: %s", e.buf.Path)
+			e.statusMsg = fmt.Sprintf("written: %s", e.buf.Path())
 		}
 	case strings.HasPrefix(cmd, "set "):
 		e.statusMsg = "set:" + cmd[4:]
@@ -815,7 +849,7 @@ func (e *Editor) execCommand() {
 
 // --- Search ---
 
-func (e *Editor) searchNext(forward bool) {
+func (e *editorState) searchNext(forward bool) {
 	if e.lastSearch == "" {
 		return
 	}
@@ -841,11 +875,11 @@ func (e *Editor) searchNext(forward bool) {
 
 // --- Helpers ---
 
-func (e *Editor) setMode(m Mode) {
+func (e *editorState) setMode(m Mode) {
 	e.mode = m
 }
 
-func (e *Editor) consumeCount() int {
+func (e *editorState) consumeCount() int {
 	if e.pendingCount == "" {
 		return 0
 	}
@@ -857,7 +891,7 @@ func (e *Editor) consumeCount() int {
 	return n
 }
 
-func (e *Editor) applyMotionN(m Motion, count int) {
+func (e *editorState) applyMotionN(m Motion, count int) {
 	if count <= 0 {
 		count = 1
 	}
@@ -867,7 +901,7 @@ func (e *Editor) applyMotionN(m Motion, count int) {
 	}
 }
 
-func (e *Editor) clampCursor() {
+func (e *editorState) clampCursor() {
 	if e.cursor.Row >= e.buf.LineCount() {
 		e.cursor.Row = e.buf.LineCount() - 1
 	}
@@ -883,7 +917,7 @@ func (e *Editor) clampCursor() {
 	}
 }
 
-func (e *Editor) toggleCase() {
+func (e *editorState) toggleCase() {
 	line := e.buf.LineRunes(e.cursor.Row)
 	col := e.cursor.Col
 	if col >= len(line) {

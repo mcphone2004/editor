@@ -13,16 +13,33 @@ package gap
 
 const defaultGapSize = 64
 
-// Buffer is a gap buffer operating on runes (Unicode code points).
-type Buffer struct {
+// Buffer is the interface implemented by the gap buffer.
+type Buffer interface {
+	Len() int
+	GapStart() int
+	Rune(i int) rune
+	Text() []rune
+	String() string
+	MoveTo(pos int)
+	Insert(r rune)
+	InsertAt(pos int, r rune)
+	InsertSlice(runes []rune)
+	DeleteBefore(n int)
+	DeleteAfter(n int)
+	DeleteRange(start, end int)
+	Slice(start, end int) []rune
+}
+
+// gapBuf is the concrete gap buffer operating on runes (Unicode code points).
+type gapBuf struct {
 	buf      []rune
 	gapStart int // first rune of the gap (insertion point)
 	gapEnd   int // first rune after the gap
 }
 
 // New returns a gap buffer pre-loaded with the given text.
-func New(text []rune) *Buffer {
-	b := &Buffer{}
+func New(text []rune) Buffer {
+	b := &gapBuf{}
 	b.buf = make([]rune, len(text)+defaultGapSize)
 	copy(b.buf, text)
 	b.gapStart = len(text)
@@ -31,15 +48,15 @@ func New(text []rune) *Buffer {
 }
 
 // Len returns the number of logical runes (gap not counted).
-func (b *Buffer) Len() int {
+func (b *gapBuf) Len() int {
 	return len(b.buf) - (b.gapEnd - b.gapStart)
 }
 
 // GapStart returns the current cursor position (= gapStart in logical coords).
-func (b *Buffer) GapStart() int { return b.gapStart }
+func (b *gapBuf) GapStart() int { return b.gapStart }
 
 // Rune returns the rune at logical position i.
-func (b *Buffer) Rune(i int) rune {
+func (b *gapBuf) Rune(i int) rune {
 	if i < b.gapStart {
 		return b.buf[i]
 	}
@@ -47,7 +64,7 @@ func (b *Buffer) Rune(i int) rune {
 }
 
 // Text returns all logical runes as a new slice.
-func (b *Buffer) Text() []rune {
+func (b *gapBuf) Text() []rune {
 	out := make([]rune, b.Len())
 	copy(out, b.buf[:b.gapStart])
 	copy(out[b.gapStart:], b.buf[b.gapEnd:])
@@ -55,12 +72,12 @@ func (b *Buffer) Text() []rune {
 }
 
 // String returns the logical contents as a string.
-func (b *Buffer) String() string {
+func (b *gapBuf) String() string {
 	return string(b.Text())
 }
 
 // MoveTo moves the gap (cursor) to logical position pos.
-func (b *Buffer) MoveTo(pos int) {
+func (b *gapBuf) MoveTo(pos int) {
 	if pos == b.gapStart {
 		return
 	}
@@ -80,27 +97,27 @@ func (b *Buffer) MoveTo(pos int) {
 }
 
 // Insert inserts rune r at the current cursor position and advances it.
-func (b *Buffer) Insert(r rune) {
+func (b *gapBuf) Insert(r rune) {
 	b.grow(1)
 	b.buf[b.gapStart] = r
 	b.gapStart++
 }
 
 // InsertAt inserts r at logical position pos.
-func (b *Buffer) InsertAt(pos int, r rune) {
+func (b *gapBuf) InsertAt(pos int, r rune) {
 	b.MoveTo(pos)
 	b.Insert(r)
 }
 
 // InsertSlice inserts all runes at the current cursor position.
-func (b *Buffer) InsertSlice(runes []rune) {
+func (b *gapBuf) InsertSlice(runes []rune) {
 	b.grow(len(runes))
 	copy(b.buf[b.gapStart:], runes)
 	b.gapStart += len(runes)
 }
 
 // DeleteBefore deletes n runes before the cursor (backspace).
-func (b *Buffer) DeleteBefore(n int) {
+func (b *gapBuf) DeleteBefore(n int) {
 	if n > b.gapStart {
 		n = b.gapStart
 	}
@@ -108,7 +125,7 @@ func (b *Buffer) DeleteBefore(n int) {
 }
 
 // DeleteAfter deletes n runes after the cursor (delete key).
-func (b *Buffer) DeleteAfter(n int) {
+func (b *gapBuf) DeleteAfter(n int) {
 	avail := len(b.buf) - b.gapEnd
 	if n > avail {
 		n = avail
@@ -117,7 +134,7 @@ func (b *Buffer) DeleteAfter(n int) {
 }
 
 // DeleteRange deletes logical runes [start, end).
-func (b *Buffer) DeleteRange(start, end int) {
+func (b *gapBuf) DeleteRange(start, end int) {
 	if start >= end {
 		return
 	}
@@ -126,7 +143,7 @@ func (b *Buffer) DeleteRange(start, end int) {
 }
 
 // Slice returns a copy of logical runes [start, end).
-func (b *Buffer) Slice(start, end int) []rune {
+func (b *gapBuf) Slice(start, end int) []rune {
 	if start >= end {
 		return nil
 	}
@@ -138,7 +155,7 @@ func (b *Buffer) Slice(start, end int) []rune {
 }
 
 // grow ensures the gap is at least need runes wide.
-func (b *Buffer) grow(need int) {
+func (b *gapBuf) grow(need int) {
 	avail := b.gapEnd - b.gapStart
 	if avail >= need {
 		return

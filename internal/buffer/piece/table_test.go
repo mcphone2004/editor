@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 
 // --- helpers ---
 
-func load(t *testing.T, content string) *piece.Table {
+func load(t *testing.T, content string) piece.Table {
 	t.Helper()
 	return piece.Load([]rune(content))
 }

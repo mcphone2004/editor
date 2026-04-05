@@ -23,7 +23,7 @@ func main() {
 	tel := telemetry.New()
 
 	// Start gopls only if a go.mod can be found from the file's directory.
-	var lspSession *lsp.Session
+	var lspSession lsp.Session
 	if rootDir, ok := findModuleRoot(path); ok {
 		tel.CommandRun("gopls:start")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -71,7 +71,7 @@ func findModuleRoot(path string) (string, bool) {
 	}
 }
 
-func run(path string, lspSession *lsp.Session, tel telemetry.Telemetry) int {
+func run(path string, lspSession lsp.Session, tel telemetry.Telemetry) int {
 	info, _ := os.Stat(path) //nolint:gosec // path comes from CLI argument, user-controlled by design
 	sizeBytes := int64(0)
 	if info != nil {

@@ -3,7 +3,7 @@ package editor
 // TextObject resolves an inclusive range [start, end) within the buffer
 // relative to the current cursor. inner=true means "inner" (i), inner=false
 // means "around" (a).
-type TextObject func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool)
+type TextObject func(e *editorState, inner bool) (r1, c1, r2, c2 int, linewise, ok bool)
 
 var textObjects = map[rune]TextObject{ //nolint:gochecknoglobals // constant lookup table equivalent
 	'w':  toWord,
@@ -22,7 +22,7 @@ var textObjects = map[rune]TextObject{ //nolint:gochecknoglobals // constant loo
 	'p':  toParagraph,
 }
 
-func toWord(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
+func toWord(e *editorState, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	line := []rune(e.buf.Line(row))
 	col := e.cursor.Col
@@ -57,7 +57,7 @@ func toWord(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) { //n
 	return row, start, row, end, false, true
 }
 
-func toWordBig(e *Editor, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
+func toWordBig(e *editorState, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	line := []rune(e.buf.Line(row))
 	col := e.cursor.Col
@@ -79,7 +79,7 @@ func toWordBig(e *Editor, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //no
 }
 
 func toQuote(q rune) TextObject {
-	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
+	return func(e *editorState, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
 		row := e.cursor.Row
 		line := []rune(e.buf.Line(row))
 		col := e.cursor.Col
@@ -122,7 +122,7 @@ func toQuote(q rune) TextObject {
 }
 
 func toPair(open, closeRune rune) TextObject {
-	return func(e *Editor, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
+	return func(e *editorState, inner bool) (r1, c1, r2, c2 int, linewise, ok bool) {
 		row, col := e.cursor.Row, e.cursor.Col
 		// Search backwards for open.
 		depth := 0
@@ -184,7 +184,7 @@ func toPair(open, closeRune rune) TextObject {
 	}
 }
 
-func toParagraph(e *Editor, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
+func toParagraph(e *editorState, _ bool) (r1, c1, r2, c2 int, linewise, ok bool) { //nolint:gocritic // many results required by TextObject interface
 	row := e.cursor.Row
 	start := row
 	for start > 0 && e.buf.Line(start-1) != "" {

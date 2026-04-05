@@ -104,9 +104,9 @@ type msgQuit struct{}
 
 // Model is the top-level bubbletea model.
 type Model struct {
-	ed     *editor.Editor
-	buf    *buffer.Buffer
-	lsp    *lsp.Session // may be nil
+	ed     editor.Editor
+	buf    buffer.Buffer
+	lsp    lsp.Session // may be nil
 	tel    telemetry.Telemetry
 	width  int
 	height int
@@ -127,8 +127,8 @@ type Model struct {
 // New creates a Model. Opens the file at path (empty = new buffer).
 // lspSession may be nil to disable LSP features.
 // tel may be nil; pass telemetry.Noop() or telemetry.New() from the caller.
-func New(path string, lspSession *lsp.Session, tel telemetry.Telemetry) (*Model, error) {
-	var buf *buffer.Buffer
+func New(path string, lspSession lsp.Session, tel telemetry.Telemetry) (*Model, error) {
+	var buf buffer.Buffer
 	var err error
 	if path != "" {
 		buf, err = buffer.Open(path)
@@ -151,7 +151,7 @@ func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.lsp != nil {
 		cmds = append(cmds, m.listenLSPExit())
-		if m.buf.Path != "" {
+		if m.buf.Path() != "" {
 			cmds = append(cmds, m.openDoc(), m.listenNotifications())
 		}
 	}
@@ -218,6 +218,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Activate gap buffer when entering insert mode.
 	if prevMode == editor.ModeNormal && key == "i" || key == "a" || key == "o" || key == "O" {
 		cur := m.ed.Cursor()
+		m.buf.SetCursorHint(cur.Row, cur.Col)
 		m.buf.ActivateGap(cur.Row, cur.Col)
 	}
 
@@ -232,7 +233,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	status := m.ed.StatusMsg()
 	switch {
 	case status == "quit" || status == "quit!":
-		if status == "quit!" || !m.buf.Modified {
+		if status == "quit!" || !m.buf.Modified() {
 			return m, tea.Quit
 		}
 	case strings.HasPrefix(status, "open:"):
@@ -248,17 +249,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Flush gap buffer when leaving insert mode.
 	if prevMode == editor.ModeInsert && m.ed.Mode() != editor.ModeInsert {
+		cur := m.ed.Cursor()
+		m.buf.SetCursorHint(cur.Row, cur.Col)
 		m.buf.FlushGap()
 		m.compVisible = false
 		// Notify LSP of the change and run go vet.
-		if m.lsp != nil && m.buf.Path != "" {
+		if m.lsp != nil && m.buf.Path() != "" {
 			cmds = append(cmds, m.didChange(), m.runVet())
 		}
 	}
 
 	// Save: run vet + notify LSP.
 	if strings.HasPrefix(status, "written:") {
-		if m.lsp != nil && m.buf.Path != "" {
+		if m.lsp != nil && m.buf.Path() != "" {
 			cmds = append(cmds, m.didSave(), m.runVet())
 		}
 	}
@@ -383,11 +386,11 @@ func (m *Model) renderStatus() string {
 		modeStyle = styleStatusCommand
 	}
 
-	left := modeStyle.Render(modeStr) + " " + m.buf.Path
-	if m.buf.Path == "" {
+	left := modeStyle.Render(modeStr) + " " + m.buf.Path()
+	if m.buf.Path() == "" {
 		left += "[New File]"
 	}
-	if m.buf.Modified {
+	if m.buf.Modified() {
 		left += " [+]"
 	}
 	var lspIndicator string
@@ -436,7 +439,7 @@ func (m *Model) listenLSPExit() tea.Cmd {
 
 func (m *Model) openDoc() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidOpen(context.Background(), m.buf.Path, m.buf.String())
+		_ = m.lsp.DidOpen(context.Background(), m.buf.Path(), m.buf.String())
 		return nil
 	}
 }
@@ -444,21 +447,21 @@ func (m *Model) openDoc() tea.Cmd {
 func (m *Model) didChange() tea.Cmd {
 	text := m.buf.String()
 	return func() tea.Msg {
-		_ = m.lsp.DidChange(context.Background(), m.buf.Path, text)
+		_ = m.lsp.DidChange(context.Background(), m.buf.Path(), text)
 		return nil
 	}
 }
 
 func (m *Model) didSave() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidSave(context.Background(), m.buf.Path)
+		_ = m.lsp.DidSave(context.Background(), m.buf.Path())
 		return nil
 	}
 }
 
 func (m *Model) gotoDefinition() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
 		locs, err := m.lsp.Definition(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(locs) == 0 {
@@ -478,7 +481,7 @@ func (m *Model) gotoDefinition() tea.Cmd {
 
 func (m *Model) hover() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
 		text, err := m.lsp.Hover(context.Background(), path, cur.Row, cur.Col)
 		if err != nil {
@@ -490,7 +493,7 @@ func (m *Model) hover() tea.Cmd {
 
 func (m *Model) complete() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
 		items, err := m.lsp.Completion(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(items) == 0 {
@@ -530,7 +533,7 @@ func (m *Model) listenNotifications() tea.Cmd {
 // --- go vet ---
 
 func (m *Model) runVet() tea.Cmd {
-	path := m.buf.Path
+	path := m.buf.Path()
 	if path == "" {
 		return nil
 	}
