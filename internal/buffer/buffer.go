@@ -25,6 +25,8 @@ import (
 
 	"github.com/anthonybrice/editor/internal/buffer/gap"
 	"github.com/anthonybrice/editor/internal/buffer/piece"
+	"github.com/anthonybrice/editor/internal/buffer/piece/memstore"
+	"github.com/anthonybrice/editor/internal/buffer/piece/pgstore"
 )
 
 // Buffer is the interface for the editor's view of an open file.
@@ -90,37 +92,38 @@ func (b *fileBuffer) SetPath(path string) { b.path = path }
 // Modified reports whether the buffer has unsaved changes.
 func (b *fileBuffer) Modified() bool { return b.modified }
 
-// New returns an empty buffer.
+// New returns an empty buffer backed by an in-memory undo store.
 func New() Buffer {
-	return &fileBuffer{table: piece.New()}
+	t := piece.New()
+	return &fileBuffer{table: t, store: memstore.New(t.Snapshot())}
 }
 
-// Open reads a file into a new Buffer.
+// Open reads a file into a new Buffer backed by an in-memory undo store.
 func Open(path string) (Buffer, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is user-provided file argument
 	if err != nil {
 		return nil, err
 	}
 	t := piece.Load([]rune(string(data)))
-	return &fileBuffer{path: path, table: t}, nil
+	return &fileBuffer{path: path, table: t, store: memstore.New(t.Snapshot())}, nil
 }
 
-// OpenWithUndo is like Open but also connects a Postgres undo store.
-// dsn is a libpq connection string, e.g.
-// "host=localhost user=postgres dbname=editor sslmode=disable".
+// OpenWithUndo is like Open but upgrades the undo store to Postgres for
+// cross-session persistence.  Falls back to the in-memory store on error.
+// dsn format: "host=localhost user=postgres dbname=editor sslmode=disable".
 func OpenWithUndo(path, dsn string) (Buffer, error) {
 	b, err := Open(path)
 	if err != nil {
 		return nil, err
 	}
 	fb := b.(*fileBuffer)
-	store, err := piece.OpenPgStore(dsn, path, fb.table.Snapshot())
+	pgStore, err := pgstore.Open(dsn, path, fb.table.Snapshot())
 	if err != nil {
-		// Log but don't fail — undo still works in-memory via the piece table.
+		// Log but don't fail — undo still works via the in-memory store.
 		fmt.Fprintf(os.Stderr, "warning: undo store unavailable: %v\n", err)
 		return b, nil
 	}
-	fb.store = store
+	fb.store = pgStore
 	return fb, nil
 }
 
@@ -134,8 +137,12 @@ func (b *fileBuffer) Save() error {
 	return nil
 }
 
-// HasUndoStore reports whether a Postgres undo store is connected.
-func (b *fileBuffer) HasUndoStore() bool { return b.store != nil }
+// HasUndoStore reports whether a Postgres undo store is connected
+// (as opposed to the default in-memory store).
+func (b *fileBuffer) HasUndoStore() bool {
+	_, ok := b.store.(*pgstore.PgStore)
+	return ok
+}
 
 // Close releases any resources (e.g. the Postgres connection).
 func (b *fileBuffer) Close() {
@@ -186,12 +193,10 @@ func (b *fileBuffer) SetCursorHint(row, col int) {
 }
 
 func (b *fileBuffer) pushSnapshot() {
-	if b.store != nil {
-		snap := b.table.Snapshot()
-		snap.CursorRow = b.hintRow
-		snap.CursorCol = b.hintCol
-		_ = b.store.Push(snap) // best-effort
-	}
+	snap := b.table.Snapshot()
+	snap.CursorRow = b.hintRow
+	snap.CursorCol = b.hintCol
+	_ = b.store.Push(snap) // best-effort
 }
 
 // --- Undo / Redo ---
@@ -201,9 +206,6 @@ func (b *fileBuffer) pushSnapshot() {
 // Returns (0, 0, false) if nothing to undo.
 func (b *fileBuffer) Undo() (row, col int, ok bool) {
 	b.FlushGap()
-	if b.store == nil {
-		return 0, 0, false
-	}
 	snap, ok2 := b.store.Undo()
 	if !ok2 {
 		return 0, 0, false
@@ -218,9 +220,6 @@ func (b *fileBuffer) Undo() (row, col int, ok bool) {
 // Returns (0, 0, false) if nothing to redo.
 func (b *fileBuffer) Redo() (row, col int, ok bool) {
 	b.FlushGap()
-	if b.store == nil {
-		return 0, 0, false
-	}
 	snap, ok2 := b.store.Redo()
 	if !ok2 {
 		return 0, 0, false
