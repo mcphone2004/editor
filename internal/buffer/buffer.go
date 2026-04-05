@@ -52,10 +52,10 @@ type Buffer interface {
 	Newline(row, col int)
 	DeleteBack(row, col int) (newRow, newCol int)
 	DeleteRune(row, col int) bool
-	DeleteRange(r1, c1, r2, c2 int) (row, col int)
-	DeleteLines(r1, r2 int)
-	YankRange(r1, c1, r2, c2 int) string
-	YankLines(r1, r2 int) string
+	DeleteRange(row1, col1, row2, col2 int) (row, col int)
+	DeleteLines(row1, row2 int)
+	YankRange(row1, col1, row2, col2 int) string
+	YankLines(row1, row2 int) string
 	InsertLineBelow(row int) int
 	InsertLineAbove(row int) int
 	PasteAfter(row, col int, text string, linewise bool) (newRow, newCol int)
