@@ -9,6 +9,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,8 +113,9 @@ type Session struct {
 
 // StartGopls launches gopls and performs the LSP handshake.
 // rootDir should be the workspace root (e.g. the module root).
-func StartGopls(rootDir string) (*Session, error) {
-	c, err := Start("gopls", "serve")
+// ctx controls the timeout for the initialize handshake; use context.WithTimeout.
+func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
+	c, err := Start(ctx, "gopls", "serve")
 	if err != nil {
 		return nil, fmt.Errorf("gopls: start: %w", err)
 	}
@@ -125,14 +127,14 @@ func StartGopls(rootDir string) (*Session, error) {
 
 	s := &Session{client: c, rootURI: rootURI, version: make(map[string]int)}
 
-	if err := s.initialize(); err != nil {
-		_ = c.Close()
+	if err := s.initialize(ctx); err != nil {
+		_ = c.Close(ctx)
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Session) initialize() error {
+func (s *Session) initialize(ctx context.Context) error {
 	params := map[string]any{
 		"processId": os.Getpid(),
 		"rootUri":   s.rootURI,
@@ -151,21 +153,22 @@ func (s *Session) initialize() error {
 				"unusedparams": true,
 				"shadow":       true,
 			},
-			"staticcheck": true,
+			// staticcheck disabled: runs full project-wide analysis on startup, OOM risk.
+			"staticcheck": false,
 		},
 	}
 	var result json.RawMessage
-	if err := s.client.Call("initialize", params, &result); err != nil {
+	if err := s.client.Call(ctx, "initialize", params, &result); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
-	return s.client.Notify("initialized", map[string]any{})
+	return s.client.Notify(ctx, "initialized", map[string]any{})
 }
 
 // DidOpen notifies gopls that a file has been opened.
-func (s *Session) DidOpen(path, text string) error {
+func (s *Session) DidOpen(ctx context.Context, path, text string) error {
 	uri := pathToURI(path)
 	s.version[uri] = 1
-	return s.client.Notify("textDocument/didOpen", map[string]any{
+	return s.client.Notify(ctx, "textDocument/didOpen", map[string]any{
 		"textDocument": map[string]any{
 			"uri":        uri,
 			"languageId": "go",
@@ -176,10 +179,10 @@ func (s *Session) DidOpen(path, text string) error {
 }
 
 // DidChange notifies gopls of a full-text update (we use full sync).
-func (s *Session) DidChange(path, text string) error {
+func (s *Session) DidChange(ctx context.Context, path, text string) error {
 	uri := pathToURI(path)
 	s.version[uri]++
-	return s.client.Notify("textDocument/didChange", map[string]any{
+	return s.client.Notify(ctx, "textDocument/didChange", map[string]any{
 		"textDocument": VersionedTextDocumentIdentifier{URI: uri, Version: s.version[uri]},
 		"contentChanges": []map[string]any{
 			{"text": text},
@@ -188,22 +191,22 @@ func (s *Session) DidChange(path, text string) error {
 }
 
 // DidSave notifies gopls that a file was saved.
-func (s *Session) DidSave(path string) error {
+func (s *Session) DidSave(ctx context.Context, path string) error {
 	uri := pathToURI(path)
-	return s.client.Notify("textDocument/didSave", map[string]any{
+	return s.client.Notify(ctx, "textDocument/didSave", map[string]any{
 		"textDocument": TextDocumentIdentifier{URI: uri},
 	})
 }
 
 // Definition requests go-to-definition for (path, line, char).
 // Returns a list of target locations.
-func (s *Session) Definition(path string, line, char int) ([]Location, error) {
+func (s *Session) Definition(ctx context.Context, path string, line, char int) ([]Location, error) {
 	params := TextDocumentPositionParams{
 		TextDocument: TextDocumentIdentifier{URI: pathToURI(path)},
 		Position:     Position{Line: line, Character: char},
 	}
 	var result json.RawMessage
-	if err := s.client.Call("textDocument/definition", params, &result); err != nil {
+	if err := s.client.Call(ctx, "textDocument/definition", params, &result); err != nil {
 		return nil, err
 	}
 	// The result may be a Location, []Location, or null.
@@ -224,13 +227,13 @@ func (s *Session) Definition(path string, line, char int) ([]Location, error) {
 
 // Hover requests hover information for (path, line, char).
 // Returns the markdown/plaintext content, or ("", nil) if nothing to show.
-func (s *Session) Hover(path string, line, char int) (string, error) {
+func (s *Session) Hover(ctx context.Context, path string, line, char int) (string, error) {
 	params := TextDocumentPositionParams{
 		TextDocument: TextDocumentIdentifier{URI: pathToURI(path)},
 		Position:     Position{Line: line, Character: char},
 	}
 	var result json.RawMessage
-	if err := s.client.Call("textDocument/hover", params, &result); err != nil {
+	if err := s.client.Call(ctx, "textDocument/hover", params, &result); err != nil {
 		return "", err
 	}
 	if len(result) == 0 || string(result) == "null" {
@@ -244,17 +247,17 @@ func (s *Session) Hover(path string, line, char int) (string, error) {
 }
 
 // Completion requests completion items at (path, line, char).
-func (s *Session) Completion(path string, line, char int) ([]CompletionItem, error) {
+func (s *Session) Completion(ctx context.Context, path string, line, char int) ([]CompletionItem, error) {
 	params := map[string]any{
 		"textDocument": TextDocumentIdentifier{URI: pathToURI(path)},
 		"position":     Position{Line: line, Character: char},
 		"context":      map[string]any{"triggerKind": 1},
 	}
 	var list CompletionList
-	if err := s.client.Call("textDocument/completion", params, &list); err != nil {
+	if err := s.client.Call(ctx, "textDocument/completion", params, &list); err != nil {
 		// Fall back to raw array.
 		var items []CompletionItem
-		if err2 := s.client.Call("textDocument/completion", params, &items); err2 != nil {
+		if err2 := s.client.Call(ctx, "textDocument/completion", params, &items); err2 != nil {
 			return nil, err
 		}
 		return items, nil
@@ -263,15 +266,21 @@ func (s *Session) Completion(path string, line, char int) ([]CompletionItem, err
 }
 
 // Shutdown sends shutdown + exit to gopls.
-func (s *Session) Shutdown() {
-	_ = s.client.Call("shutdown", nil, nil)
-	_ = s.client.Notify("exit", nil)
-	_ = s.client.Close()
+func (s *Session) Shutdown(ctx context.Context) {
+	_ = s.client.Call(ctx, "shutdown", nil, nil)
+	_ = s.client.Notify(ctx, "exit", nil)
+	_ = s.client.Close(ctx)
 }
 
 // Notifications returns the raw notification channel from the underlying client.
 func (s *Session) Notifications() <-chan Notification {
 	return s.client.Notifications
+}
+
+// Exited returns a channel that is closed when the gopls process exits,
+// whether due to a crash, explicit shutdown, or any other reason.
+func (s *Session) Exited() <-chan struct{} {
+	return s.client.exited
 }
 
 // ParseDiagnostics decodes a publishDiagnostics notification.
