@@ -1,43 +1,41 @@
-with-expecter: true
-issue-845-fix: true
 packages:
   github.com/anthonybrice/editor/internal/buffer/gap:
     interfaces:
       Buffer:
         config:
           dir: "{{.InterfaceDir}}/mock"
-          outpkg: mock
+          pkgname: mock
           filename: mock_Buffer.go
   github.com/anthonybrice/editor/internal/buffer/piece:
     interfaces:
       Table:
         config:
           dir: "{{.InterfaceDir}}/tablemock"
-          outpkg: tablemock
+          pkgname: tablemock
           filename: mock_Table.go
       UndoStore:
         config:
           dir: "{{.InterfaceDir}}/mockstore"
-          outpkg: mockstore
+          pkgname: mockstore
           filename: mock_UndoStore.go
   github.com/anthonybrice/editor/internal/buffer:
     interfaces:
       Buffer:
         config:
           dir: "{{.InterfaceDir}}/mock"
-          outpkg: mock
+          pkgname: mock
           filename: mock_Buffer.go
   github.com/anthonybrice/editor/internal/editor:
     interfaces:
       Editor:
         config:
           dir: "{{.InterfaceDir}}/mock"
-          outpkg: mock
+          pkgname: mock
           filename: mock_Editor.go
   github.com/anthonybrice/editor/internal/lsp:
     interfaces:
       Session:
         config:
           dir: "{{.InterfaceDir}}/mock"
-          outpkg: mock
+          pkgname: mock
           filename: mock_Session.go
