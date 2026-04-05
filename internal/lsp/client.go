@@ -144,6 +144,12 @@ func (c *Client) Notify(ctx context.Context, method string, params any) error {
 	return c.send(&request{JSONRPC: "2.0", Method: method, Params: params})
 }
 
+// Exited returns a channel that is closed when the readLoop exits, i.e. when
+// the subprocess terminates for any reason.
+func (c *Client) Exited() <-chan struct{} {
+	return c.exited
+}
+
 // Close shuts down the language server gracefully.
 func (c *Client) Close(ctx context.Context) error {
 	close(c.done)

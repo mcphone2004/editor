@@ -752,3 +752,26 @@ func TestBug_ActivateGap_aoO_DoNotMutateExistingContent(t *testing.T) {
 		t.Errorf("typed 'aoO' missing from buffer: %q", content)
 	}
 }
+
+// --- LSP exit detection tests ---
+
+// TestLSPExited_StatusBarUpdates verifies that when msgLSPExited is delivered
+// to the model, the status bar switches from "LSP" to "no LSP".
+func TestLSPExited_StatusBarUpdates(t *testing.T) {
+	m, err := ui.New("", nil, telemetry.Noop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Without LSP the status bar should already show "no LSP".
+	if !strings.Contains(statusLine(m2), "no LSP") {
+		t.Errorf("expected 'no LSP' in status bar without LSP session; got: %q", statusLine(m2))
+	}
+
+	// Simulate an LSP exit arriving mid-session.
+	m3, _ := m2.Update(ui.MsgLSPExited)
+	if !strings.Contains(statusLine(m3), "no LSP") {
+		t.Errorf("expected 'no LSP' after msgLSPExited; got: %q", statusLine(m3))
+	}
+}
