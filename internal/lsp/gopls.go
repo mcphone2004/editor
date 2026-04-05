@@ -9,6 +9,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,8 +113,9 @@ type Session struct {
 
 // StartGopls launches gopls and performs the LSP handshake.
 // rootDir should be the workspace root (e.g. the module root).
-func StartGopls(rootDir string) (*Session, error) {
-	c, err := Start("gopls", "serve")
+// ctx controls the timeout for the initialize handshake; use context.WithTimeout.
+func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
+	c, err := Start(ctx, "gopls", "serve")
 	if err != nil {
 		return nil, fmt.Errorf("gopls: start: %w", err)
 	}
@@ -125,14 +127,14 @@ func StartGopls(rootDir string) (*Session, error) {
 
 	s := &Session{client: c, rootURI: rootURI, version: make(map[string]int)}
 
-	if err := s.initialize(); err != nil {
+	if err := s.initialize(ctx); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Session) initialize() error {
+func (s *Session) initialize(ctx context.Context) error {
 	params := map[string]any{
 		"processId": os.Getpid(),
 		"rootUri":   s.rootURI,
@@ -156,7 +158,7 @@ func (s *Session) initialize() error {
 		},
 	}
 	var result json.RawMessage
-	if err := s.client.Call("initialize", params, &result); err != nil {
+	if err := s.client.CallCtx(ctx, "initialize", params, &result); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	return s.client.Notify("initialized", map[string]any{})

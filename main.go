@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/anthonybrice/editor/internal/lsp"
 	"github.com/anthonybrice/editor/internal/telemetry"
@@ -17,18 +19,24 @@ func main() {
 		path = os.Args[1]
 	}
 
+	// Create telemetry first so startup/gopls events are captured even if we crash.
+	tel := telemetry.New()
+
 	// Start gopls only if a go.mod can be found from the file's directory.
 	var lspSession *lsp.Session
 	if rootDir, ok := findModuleRoot(path); ok {
-		sess, err := lsp.StartGopls(rootDir)
+		tel.CommandRun("gopls:start")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		sess, err := lsp.StartGopls(ctx, rootDir)
+		cancel()
 		if err != nil {
+			tel.Error("gopls start", err)
 			fmt.Fprintf(os.Stderr, "note: gopls unavailable (%v) — LSP features disabled\n", err)
 		} else {
+			tel.CommandRun("gopls:ready")
 			lspSession = sess
 		}
 	}
-
-	tel := telemetry.New()
 
 	code := run(path, lspSession, tel)
 	tel.Close()

@@ -66,8 +66,9 @@ type Notification struct {
 }
 
 // Start launches the language server at command+args and returns a Client.
-func Start(command string, args ...string) (*Client, error) {
-	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // intentional subprocess launch for LSP
+// ctx is used to kill the subprocess if cancelled (e.g. on timeout).
+func Start(ctx context.Context, command string, args ...string) (*Client, error) {
+	cmd := exec.CommandContext(ctx, command, args...) //nolint:gosec // intentional subprocess launch for LSP
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -94,6 +95,11 @@ func Start(command string, args ...string) (*Client, error) {
 // Call sends a request with the given method+params and blocks until the
 // server replies.  The result is JSON-unmarshalled into result (may be nil).
 func (c *Client) Call(method string, params, result any) error {
+	return c.CallCtx(context.Background(), method, params, result)
+}
+
+// CallCtx is like Call but respects ctx cancellation/timeout.
+func (c *Client) CallCtx(ctx context.Context, method string, params, result any) error {
 	id := c.nextID.Add(1)
 	ch := make(chan *response, 1)
 
@@ -108,17 +114,24 @@ func (c *Client) Call(method string, params, result any) error {
 		return err
 	}
 
-	resp, ok := <-ch
-	if !ok {
-		return fmt.Errorf("lsp: connection closed waiting for %s response", method)
+	select {
+	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+		return fmt.Errorf("lsp: %s timed out: %w", method, ctx.Err())
+	case resp, ok := <-ch:
+		if !ok {
+			return fmt.Errorf("lsp: connection closed waiting for %s response", method)
+		}
+		if resp.Error != nil {
+			return resp.Error
+		}
+		if result != nil && len(resp.Result) > 0 {
+			return json.Unmarshal(resp.Result, result)
+		}
+		return nil
 	}
-	if resp.Error != nil {
-		return resp.Error
-	}
-	if result != nil && len(resp.Result) > 0 {
-		return json.Unmarshal(resp.Result, result)
-	}
-	return nil
 }
 
 // Notify sends a notification (no response expected).
