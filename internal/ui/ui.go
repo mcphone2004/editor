@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/anthonybrice/editor/internal/buffer"
 	"github.com/anthonybrice/editor/internal/editor"
 	"github.com/anthonybrice/editor/internal/lsp"
+	"github.com/anthonybrice/editor/internal/telemetry"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -75,9 +77,18 @@ var (
 				Background(lipgloss.Color("62")).
 				Foreground(lipgloss.Color("255")).
 				Padding(0, 1)
+
+	styleStatusLSPOn = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("2")).
+				Bold(true)
+
+	styleStatusLSPOff = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240"))
 )
 
 // --- Message types for async operations ---
+
+type msgLSPExited struct{}
 
 type msgDiagnostics struct {
 	path  string
@@ -93,9 +104,10 @@ type msgQuit struct{}
 
 // Model is the top-level bubbletea model.
 type Model struct {
-	ed     *editor.Editor
-	buf    *buffer.Buffer
-	lsp    *lsp.Session // may be nil
+	ed     editor.Editor
+	buf    buffer.Buffer
+	lsp    lsp.Session // may be nil
+	tel    telemetry.Telemetry
 	width  int
 	height int
 	scroll int // first visible line
@@ -114,8 +126,9 @@ type Model struct {
 
 // New creates a Model. Opens the file at path (empty = new buffer).
 // lspSession may be nil to disable LSP features.
-func New(path string, lspSession *lsp.Session) (*Model, error) {
-	var buf *buffer.Buffer
+// tel may be nil; pass telemetry.Noop() or telemetry.New() from the caller.
+func New(path string, lspSession lsp.Session, tel telemetry.Telemetry) (*Model, error) {
+	var buf buffer.Buffer
 	var err error
 	if path != "" {
 		buf, err = buffer.Open(path)
@@ -126,15 +139,21 @@ func New(path string, lspSession *lsp.Session) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tel == nil {
+		tel = telemetry.Noop()
+	}
 	ed := editor.New(buf)
-	return &Model{ed: ed, buf: buf, lsp: lspSession}, nil
+	return &Model{ed: ed, buf: buf, lsp: lspSession, tel: tel}, nil
 }
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	if m.lsp != nil && m.buf.Path != "" {
-		cmds = append(cmds, m.openDoc(), m.listenNotifications())
+	if m.lsp != nil {
+		cmds = append(cmds, m.listenLSPExit())
+		if m.buf.Path() != "" {
+			cmds = append(cmds, m.openDoc(), m.listenNotifications())
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -148,6 +167,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case msgLSPExited:
+		m.lsp = nil
 
 	case msgDiagnostics:
 		m.mergeDiagnostics(msg.path, msg.diags)
@@ -196,6 +218,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Activate gap buffer when entering insert mode.
 	if prevMode == editor.ModeNormal && key == "i" || key == "a" || key == "o" || key == "O" {
 		cur := m.ed.Cursor()
+		m.buf.SetCursorHint(cur.Row, cur.Col)
 		m.buf.ActivateGap(cur.Row, cur.Col)
 	}
 
@@ -210,7 +233,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	status := m.ed.StatusMsg()
 	switch {
 	case status == "quit" || status == "quit!":
-		if status == "quit!" || !m.buf.Modified {
+		if status == "quit!" || !m.buf.Modified() {
 			return m, tea.Quit
 		}
 	case strings.HasPrefix(status, "open:"):
@@ -226,17 +249,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Flush gap buffer when leaving insert mode.
 	if prevMode == editor.ModeInsert && m.ed.Mode() != editor.ModeInsert {
+		cur := m.ed.Cursor()
+		m.buf.SetCursorHint(cur.Row, cur.Col)
 		m.buf.FlushGap()
 		m.compVisible = false
 		// Notify LSP of the change and run go vet.
-		if m.lsp != nil && m.buf.Path != "" {
+		if m.lsp != nil && m.buf.Path() != "" {
 			cmds = append(cmds, m.didChange(), m.runVet())
 		}
 	}
 
 	// Save: run vet + notify LSP.
 	if strings.HasPrefix(status, "written:") {
-		if m.lsp != nil && m.buf.Path != "" {
+		if m.lsp != nil && m.buf.Path() != "" {
 			cmds = append(cmds, m.didSave(), m.runVet())
 		}
 	}
@@ -361,15 +386,21 @@ func (m *Model) renderStatus() string {
 		modeStyle = styleStatusCommand
 	}
 
-	left := modeStyle.Render(modeStr) + " " + m.buf.Path
-	if m.buf.Path == "" {
+	left := modeStyle.Render(modeStr) + " " + m.buf.Path()
+	if m.buf.Path() == "" {
 		left += "[New File]"
 	}
-	if m.buf.Modified {
+	if m.buf.Modified() {
 		left += " [+]"
 	}
-	right := fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
-	pad := m.width - lipgloss.Width(left) - len(right) - 1
+	var lspIndicator string
+	if m.lsp != nil {
+		lspIndicator = styleStatusLSPOn.Render("LSP")
+	} else {
+		lspIndicator = styleStatusLSPOff.Render("no LSP")
+	}
+	right := lspIndicator + "  " + fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
+	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
 	if pad < 0 {
 		pad = 0
 	}
@@ -398,9 +429,17 @@ func (m *Model) renderCompletion() string {
 
 // --- LSP commands ---
 
+func (m *Model) listenLSPExit() tea.Cmd {
+	exited := m.lsp.Exited()
+	return func() tea.Msg {
+		<-exited
+		return msgLSPExited{}
+	}
+}
+
 func (m *Model) openDoc() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidOpen(m.buf.Path, m.buf.String())
+		_ = m.lsp.DidOpen(context.Background(), m.buf.Path(), m.buf.String())
 		return nil
 	}
 }
@@ -408,23 +447,23 @@ func (m *Model) openDoc() tea.Cmd {
 func (m *Model) didChange() tea.Cmd {
 	text := m.buf.String()
 	return func() tea.Msg {
-		_ = m.lsp.DidChange(m.buf.Path, text)
+		_ = m.lsp.DidChange(context.Background(), m.buf.Path(), text)
 		return nil
 	}
 }
 
 func (m *Model) didSave() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidSave(m.buf.Path)
+		_ = m.lsp.DidSave(context.Background(), m.buf.Path())
 		return nil
 	}
 }
 
 func (m *Model) gotoDefinition() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
-		locs, err := m.lsp.Definition(path, cur.Row, cur.Col)
+		locs, err := m.lsp.Definition(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(locs) == 0 {
 			return msgHover{text: fmt.Sprintf("definition: %v", err)}
 		}
@@ -442,9 +481,9 @@ func (m *Model) gotoDefinition() tea.Cmd {
 
 func (m *Model) hover() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
-		text, err := m.lsp.Hover(path, cur.Row, cur.Col)
+		text, err := m.lsp.Hover(context.Background(), path, cur.Row, cur.Col)
 		if err != nil {
 			return msgHover{text: fmt.Sprintf("hover error: %v", err)}
 		}
@@ -454,9 +493,9 @@ func (m *Model) hover() tea.Cmd {
 
 func (m *Model) complete() tea.Cmd {
 	cur := m.ed.Cursor()
-	path := m.buf.Path
+	path := m.buf.Path()
 	return func() tea.Msg {
-		items, err := m.lsp.Completion(path, cur.Row, cur.Col)
+		items, err := m.lsp.Completion(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(items) == 0 {
 			return msgCompletion{}
 		}
@@ -494,18 +533,26 @@ func (m *Model) listenNotifications() tea.Cmd {
 // --- go vet ---
 
 func (m *Model) runVet() tea.Cmd {
-	path := m.buf.Path
+	path := m.buf.Path()
 	if path == "" {
 		return nil
 	}
+	tel := m.tel
 	return func() tea.Msg {
+		tel.VetStart(".")
+		start := time.Now()
 		out, err := exec.CommandContext(context.Background(), "go", "vet", "./...").
 			CombinedOutput()
-		if err == nil {
-			return msgVetDiags{}
+		durationMS := time.Since(start).Milliseconds()
+		exitCode := 0
+		if err != nil {
+			exitCode = 1
+			tel.VetEnd(".", durationMS, exitCode, string(out))
+			diags := parseVetOutput(string(out), path)
+			return msgVetDiags{diags: diags}
 		}
-		diags := parseVetOutput(string(out), path)
-		return msgVetDiags{diags: diags}
+		tel.VetEnd(".", durationMS, exitCode, "")
+		return msgVetDiags{}
 	}
 }
 
@@ -555,7 +602,7 @@ func (m *Model) openFile(path string) tea.Cmd {
 		m.ed = editor.New(buf)
 		m.scroll = 0
 		if m.lsp != nil {
-			_ = m.lsp.DidOpen(path, buf.String())
+			_ = m.lsp.DidOpen(context.Background(), path, buf.String())
 		}
 		return nil
 	}
@@ -613,6 +660,11 @@ func (m Model) String() string {
 	return m.buf.String()
 }
 
+// LineCount returns the number of lines in the buffer.
+func (m *Model) LineCount() int {
+	return m.buf.LineCount()
+}
+
 func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 	if linewise {
 		return row >= start.Row && row <= end.Row
@@ -633,7 +685,7 @@ func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
 // engine uses: printable runes pass through as-is; special keys become
 // "<Name>" strings.
 func keyString(msg tea.KeyMsg) string {
-	switch msg.Type { //nolint:exhaustive // intentionally handles only the subset of keys the editor uses
+	switch msg.Type { //nolint:exhaustive // only handles the subset of keys the editor uses
 	case tea.KeyRunes:
 		return string(msg.Runes)
 	case tea.KeyEnter:

@@ -33,7 +33,8 @@ type Client struct {
 	// Notifications receives server-initiated messages (diagnostics, etc.).
 	Notifications chan Notification
 
-	done chan struct{}
+	done   chan struct{} // closed by Close() to stop readLoop gracefully
+	exited chan struct{} // closed by readLoop when it exits for any reason
 }
 
 type request struct {
@@ -66,8 +67,10 @@ type Notification struct {
 }
 
 // Start launches the language server at command+args and returns a Client.
-func Start(command string, args ...string) (*Client, error) {
-	cmd := exec.CommandContext(context.Background(), command, args...) //nolint:gosec // intentional subprocess launch for LSP
+// ctx is used for values only; cancellation is stripped so the subprocess
+// lifetime is not tied to the caller's timeout.
+func Start(ctx context.Context, command string, args ...string) (*Client, error) {
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), command, args...) //nolint:gosec // intentional subprocess launch for LSP
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -86,18 +89,23 @@ func Start(command string, args ...string) (*Client, error) {
 		pending:       make(map[int64]chan *response),
 		Notifications: make(chan Notification, 64),
 		done:          make(chan struct{}),
+		exited:        make(chan struct{}),
 	}
 	go c.readLoop()
 	return c, nil
 }
 
-// Call sends a request with the given method+params and blocks until the
-// server replies.  The result is JSON-unmarshalled into result (may be nil).
-func (c *Client) Call(method string, params, result any) error {
+// Call sends a request and blocks until the server replies or ctx is done.
+// The result is JSON-unmarshalled into result (may be nil).
+func (c *Client) Call(ctx context.Context, method string, params, result any) error {
 	id := c.nextID.Add(1)
 	ch := make(chan *response, 1)
 
 	c.mu.Lock()
+	if c.pending == nil {
+		c.mu.Unlock()
+		return fmt.Errorf("lsp: connection already closed")
+	}
 	c.pending[id] = ch
 	c.mu.Unlock()
 
@@ -108,29 +116,52 @@ func (c *Client) Call(method string, params, result any) error {
 		return err
 	}
 
-	resp, ok := <-ch
-	if !ok {
-		return fmt.Errorf("lsp: connection closed waiting for %s response", method)
+	select {
+	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+		return fmt.Errorf("lsp: %s timed out: %w", method, ctx.Err())
+	case resp, ok := <-ch:
+		if !ok {
+			return fmt.Errorf("lsp: connection closed waiting for %s response", method)
+		}
+		if resp.Error != nil {
+			return resp.Error
+		}
+		if result != nil && len(resp.Result) > 0 {
+			return json.Unmarshal(resp.Result, result)
+		}
+		return nil
 	}
-	if resp.Error != nil {
-		return resp.Error
-	}
-	if result != nil && len(resp.Result) > 0 {
-		return json.Unmarshal(resp.Result, result)
-	}
-	return nil
 }
 
 // Notify sends a notification (no response expected).
-func (c *Client) Notify(method string, params any) error {
+func (c *Client) Notify(ctx context.Context, method string, params any) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("lsp: notify %s: %w", method, err)
+	}
 	return c.send(&request{JSONRPC: "2.0", Method: method, Params: params})
 }
 
+// Exited returns a channel that is closed when the readLoop exits, i.e. when
+// the subprocess terminates for any reason.
+func (c *Client) Exited() <-chan struct{} {
+	return c.exited
+}
+
 // Close shuts down the language server gracefully.
-func (c *Client) Close() error {
+func (c *Client) Close(ctx context.Context) error {
 	close(c.done)
 	_ = c.stdin.Close()
-	return c.cmd.Wait()
+	done := make(chan error, 1)
+	go func() { done <- c.cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Client) send(r *request) error {
@@ -157,6 +188,7 @@ func (c *Client) readLoop() {
 		}
 		c.pending = nil
 		c.mu.Unlock()
+		close(c.exited)
 	}()
 
 	for {

@@ -10,11 +10,11 @@ type Pos struct{ Row, Col int }
 
 // Motion resolves a movement from the current cursor position.
 // It returns the destination position and whether the range is linewise.
-type Motion func(e *Editor) (dst Pos, linewise bool)
+type Motion func(e *editorState) (dst Pos, linewise bool)
 
 // --- Basic directional motions ---
 
-func motionLeft(e *Editor) (Pos, bool) {
+func motionLeft(e *editorState) (Pos, bool) {
 	p := e.cursor
 	if p.Col > 0 {
 		p.Col--
@@ -22,7 +22,7 @@ func motionLeft(e *Editor) (Pos, bool) {
 	return p, false
 }
 
-func motionRight(e *Editor) (Pos, bool) {
+func motionRight(e *editorState) (Pos, bool) {
 	p := e.cursor
 	maxCol := e.buf.LineLen(p.Row) - 1
 	if e.mode == ModeInsert {
@@ -37,7 +37,7 @@ func motionRight(e *Editor) (Pos, bool) {
 	return p, false
 }
 
-func motionUp(e *Editor) (Pos, bool) {
+func motionUp(e *editorState) (Pos, bool) {
 	p := e.cursor
 	if p.Row > 0 {
 		p.Row--
@@ -46,7 +46,7 @@ func motionUp(e *Editor) (Pos, bool) {
 	return p, false
 }
 
-func motionDown(e *Editor) (Pos, bool) {
+func motionDown(e *editorState) (Pos, bool) {
 	p := e.cursor
 	if p.Row < e.buf.LineCount()-1 {
 		p.Row++
@@ -57,7 +57,7 @@ func motionDown(e *Editor) (Pos, bool) {
 
 // --- Line motions ---
 
-func motionLineEnd(e *Editor) (Pos, bool) {
+func motionLineEnd(e *editorState) (Pos, bool) {
 	row := e.cursor.Row
 	end := e.buf.LineLen(row) - 1
 	if end < 0 {
@@ -66,7 +66,7 @@ func motionLineEnd(e *Editor) (Pos, bool) {
 	return Pos{row, end}, false
 }
 
-func motionFirstNonBlank(e *Editor) (Pos, bool) {
+func motionFirstNonBlank(e *editorState) (Pos, bool) {
 	row := e.cursor.Row
 	line := []rune(e.buf.Line(row))
 	for i, r := range line {
@@ -79,15 +79,15 @@ func motionFirstNonBlank(e *Editor) (Pos, bool) {
 
 // --- Word motions ---
 
-func motionWordForward(e *Editor) (Pos, bool) {
+func motionWordForward(e *editorState) (Pos, bool) {
 	return wordForward(e, false)
 }
 
-func motionWordForwardBig(e *Editor) (Pos, bool) {
+func motionWordForwardBig(e *editorState) (Pos, bool) {
 	return wordForward(e, true)
 }
 
-func wordForward(e *Editor, big bool) (Pos, bool) {
+func wordForward(e *editorState, big bool) (Pos, bool) {
 	row, col := e.cursor.Row, e.cursor.Col
 	line := []rune(e.buf.Line(row))
 
@@ -118,15 +118,15 @@ func wordForward(e *Editor, big bool) (Pos, bool) {
 	return Pos{row, col}, false
 }
 
-func motionWordBack(e *Editor) (Pos, bool) {
+func motionWordBack(e *editorState) (Pos, bool) {
 	return wordBack(e, false)
 }
 
-func motionWordBackBig(e *Editor) (Pos, bool) {
+func motionWordBackBig(e *editorState) (Pos, bool) {
 	return wordBack(e, true)
 }
 
-func wordBack(e *Editor, big bool) (Pos, bool) {
+func wordBack(e *editorState, big bool) (Pos, bool) {
 	row, col := e.cursor.Row, e.cursor.Col
 	line := []rune(e.buf.Line(row))
 	isW := wordClass(big)
@@ -153,15 +153,15 @@ func wordBack(e *Editor, big bool) (Pos, bool) {
 	return Pos{row, col}, false
 }
 
-func motionWordEnd(e *Editor) (Pos, bool) {
+func motionWordEnd(e *editorState) (Pos, bool) {
 	return wordEnd(e, false)
 }
 
-func motionWordEndBig(e *Editor) (Pos, bool) {
+func motionWordEndBig(e *editorState) (Pos, bool) {
 	return wordEnd(e, true)
 }
 
-func wordEnd(e *Editor, big bool) (Pos, bool) {
+func wordEnd(e *editorState, big bool) (Pos, bool) {
 	row, col := e.cursor.Row, e.cursor.Col
 	line := []rune(e.buf.Line(row))
 	isW := wordClass(big)
@@ -188,13 +188,13 @@ func wordEnd(e *Editor, big bool) (Pos, bool) {
 
 // --- File motions ---
 
-func motionFileEnd(e *Editor) (Pos, bool) {
+func motionFileEnd(e *editorState) (Pos, bool) {
 	row := e.buf.LineCount() - 1
 	return Pos{row, 0}, true
 }
 
 func motionGoToLine(line int) Motion {
-	return func(e *Editor) (Pos, bool) {
+	return func(e *editorState) (Pos, bool) {
 		row := line - 1
 		if row < 0 {
 			row = 0
@@ -209,7 +209,7 @@ func motionGoToLine(line int) Motion {
 // --- Find-char motions ---
 
 func motionFindChar(ch rune, forward, till bool) Motion {
-	return func(e *Editor) (Pos, bool) {
+	return func(e *editorState) (Pos, bool) {
 		row, col := e.cursor.Row, e.cursor.Col
 		line := []rune(e.buf.Line(row))
 		if forward { //nolint:nestif // inherently nested directional search
@@ -237,7 +237,7 @@ func motionFindChar(ch rune, forward, till bool) Motion {
 
 // --- Paragraph motions ---
 
-func motionParaForward(e *Editor) (Pos, bool) {
+func motionParaForward(e *editorState) (Pos, bool) {
 	row := e.cursor.Row
 	for row < e.buf.LineCount()-1 {
 		row++
@@ -248,7 +248,7 @@ func motionParaForward(e *Editor) (Pos, bool) {
 	return Pos{e.buf.LineCount() - 1, 0}, false
 }
 
-func motionParaBack(e *Editor) (Pos, bool) {
+func motionParaBack(e *editorState) (Pos, bool) {
 	row := e.cursor.Row
 	for row > 0 {
 		row--
@@ -281,7 +281,7 @@ func wordClass(big bool) func(rune) int {
 	}
 }
 
-func clampCol(e *Editor, row, col int) int {
+func clampCol(e *editorState, row, col int) int {
 	maxCol := e.buf.LineLen(row) - 1
 	if e.mode == ModeInsert {
 		maxCol = e.buf.LineLen(row)

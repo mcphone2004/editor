@@ -25,70 +25,127 @@ import (
 
 	"github.com/anthonybrice/editor/internal/buffer/gap"
 	"github.com/anthonybrice/editor/internal/buffer/piece"
+	"github.com/anthonybrice/editor/internal/buffer/piece/memstore"
+	"github.com/anthonybrice/editor/internal/buffer/piece/pgstore"
 )
 
-// Buffer is the editor's view of an open file.
-type Buffer struct {
-	Path     string
-	Modified bool
+// Buffer is the interface for the editor's view of an open file.
+type Buffer interface {
+	Path() string
+	SetPath(path string)
+	Modified() bool
+	Save() error
+	Close()
+	HasUndoStore() bool
+	ActivateGap(row, col int)
+	FlushGap()
+	SetCursorHint(row, col int)
+	Undo() (row, col int, ok bool)
+	Redo() (row, col int, ok bool)
+	String() string
+	LineCount() int
+	Line(row int) string
+	LineRunes(row int) []rune
+	LineLen(row int) int
+	Insert(row, col int, r rune)
+	InsertString(row, col int, s string)
+	Newline(row, col int)
+	DeleteBack(row, col int) (newRow, newCol int)
+	DeleteRune(row, col int) bool
+	DeleteRange(r1, c1, r2, c2 int) (row, col int)
+	DeleteLines(r1, r2 int)
+	YankRange(r1, c1, r2, c2 int) string
+	YankLines(r1, r2 int) string
+	InsertLineBelow(row int) int
+	InsertLineAbove(row int) int
+	PasteAfter(row, col int, text string, linewise bool) (newRow, newCol int)
+	PasteBefore(row, col int, text string, linewise bool) (newRow, newCol int)
+}
 
-	table *piece.Table
+// fileBuffer is the editor's view of an open file.
+type fileBuffer struct {
+	path     string
+	modified bool
+
+	table piece.Table
 
 	// Gap buffer — active only while in insert mode.
 	// hotRow/hotCol track where in the document the gap was "opened".
-	gap       *gap.Buffer
+	gap       gap.Buffer
 	hotRow    int
 	hotActive bool
 
 	// Optional Postgres-backed undo store.  nil when postgres is unavailable.
-	store *piece.PgStore
+	store piece.UndoStore
+
+	// Cursor hint recorded before a mutating operation so the snapshot
+	// captures where the user was before the change.
+	hintRow, hintCol int
 }
 
-// New returns an empty buffer.
-func New() *Buffer {
-	return &Buffer{table: piece.New()}
+// Path returns the file path.
+func (b *fileBuffer) Path() string { return b.path }
+
+// SetPath sets the file path.
+func (b *fileBuffer) SetPath(path string) { b.path = path }
+
+// Modified reports whether the buffer has unsaved changes.
+func (b *fileBuffer) Modified() bool { return b.modified }
+
+// New returns an empty buffer backed by an in-memory undo store.
+func New() Buffer {
+	t := piece.New()
+	return &fileBuffer{table: t, store: memstore.New(t.Snapshot())}
 }
 
-// Open reads a file into a new Buffer.
-func Open(path string) (*Buffer, error) {
+// Open reads a file into a new Buffer backed by an in-memory undo store.
+func Open(path string) (Buffer, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is user-provided file argument
 	if err != nil {
 		return nil, err
 	}
 	t := piece.Load([]rune(string(data)))
-	return &Buffer{Path: path, table: t}, nil
+	return &fileBuffer{path: path, table: t, store: memstore.New(t.Snapshot())}, nil
 }
 
-// OpenWithUndo is like Open but also connects a Postgres undo store.
-// dsn is a libpq connection string, e.g.
-// "host=localhost user=postgres dbname=editor sslmode=disable".
-func OpenWithUndo(path, dsn string) (*Buffer, error) {
+// OpenWithUndo is like Open but upgrades the undo store to Postgres for
+// cross-session persistence.  Falls back to the in-memory store on error.
+// dsn format: "host=localhost user=postgres dbname=editor sslmode=disable".
+func OpenWithUndo(path, dsn string) (Buffer, error) {
 	b, err := Open(path)
 	if err != nil {
 		return nil, err
 	}
-	store, err := piece.OpenPgStore(dsn, path, b.table.Snapshot())
+	fb := b.(*fileBuffer)
+	pgStore, err := pgstore.Open(dsn, path, fb.table.Snapshot())
 	if err != nil {
-		// Log but don't fail — undo still works in-memory via the piece table.
+		// Log but don't fail — undo still works via the in-memory store.
 		fmt.Fprintf(os.Stderr, "warning: undo store unavailable: %v\n", err)
 		return b, nil
 	}
-	b.store = store
-	return b, nil
+	fb.store = pgStore
+	return fb, nil
 }
 
 // Save writes the buffer contents to disk.
-func (b *Buffer) Save() error {
+func (b *fileBuffer) Save() error {
 	b.FlushGap()
-	if err := os.WriteFile(b.Path, []byte(b.table.String()), 0o600); err != nil {
+	if err := os.WriteFile(b.path, []byte(b.table.String()), 0o600); err != nil {
 		return err
 	}
-	b.Modified = false
+	b.modified = false
 	return nil
 }
 
+// HasUndoStore reports whether a Postgres undo store is connected
+// (as opposed to the default in-memory store).
+func (b *fileBuffer) HasUndoStore() bool {
+	_, ok := b.store.(*pgstore.PgStore)
+	return ok
+}
+
 // Close releases any resources (e.g. the Postgres connection).
-func (b *Buffer) Close() {
+func (b *fileBuffer) Close() {
 	if b.store != nil {
 		_ = b.store.Close()
 	}
@@ -98,7 +155,7 @@ func (b *Buffer) Close() {
 
 // ActivateGap loads the content of line row into the gap buffer, positioning
 // the gap at col.  Call this when entering insert mode.
-func (b *Buffer) ActivateGap(row, col int) {
+func (b *fileBuffer) ActivateGap(row, col int) {
 	b.FlushGap() // flush any previous hot zone
 	line := []rune(b.table.Line(row))
 	b.gap = gap.New(line)
@@ -110,7 +167,7 @@ func (b *Buffer) ActivateGap(row, col int) {
 // FlushGap writes the gap buffer back into the piece table and pushes an undo
 // snapshot.  Call this when leaving insert mode or before any piece-table
 // operation that would invalidate the hot zone.
-func (b *Buffer) FlushGap() {
+func (b *fileBuffer) FlushGap() {
 	if !b.hotActive {
 		return
 	}
@@ -128,55 +185,60 @@ func (b *Buffer) FlushGap() {
 	b.pushSnapshot()
 }
 
-func (b *Buffer) pushSnapshot() {
-	if b.store != nil {
-		snap := b.table.Snapshot()
-		_ = b.store.Push(snap) // best-effort
-	}
+// SetCursorHint records the cursor position to store in the next undo snapshot.
+// Call this immediately before any buffer operation that will push a snapshot.
+func (b *fileBuffer) SetCursorHint(row, col int) {
+	b.hintRow = row
+	b.hintCol = col
+}
+
+func (b *fileBuffer) pushSnapshot() {
+	snap := b.table.Snapshot()
+	snap.CursorRow = b.hintRow
+	snap.CursorCol = b.hintCol
+	_ = b.store.Push(snap) // best-effort
 }
 
 // --- Undo / Redo ---
 
-// Undo restores the previous state. Returns false if nothing to undo.
-func (b *Buffer) Undo() bool {
+// Undo restores the previous state.
+// Returns the cursor position recorded at that snapshot and ok=true on success.
+// Returns (0, 0, false) if nothing to undo.
+func (b *fileBuffer) Undo() (row, col int, ok bool) {
 	b.FlushGap()
-	if b.store == nil {
-		return false
-	}
-	snap, ok := b.store.Undo()
-	if !ok {
-		return false
+	snap, ok2 := b.store.Undo()
+	if !ok2 {
+		return 0, 0, false
 	}
 	b.table.Restore(snap)
-	b.Modified = true
-	return true
+	b.modified = true
+	return snap.CursorRow, snap.CursorCol, true
 }
 
-// Redo reapplies a previously undone change. Returns false if nothing to redo.
-func (b *Buffer) Redo() bool {
+// Redo reapplies a previously undone change.
+// Returns the cursor position recorded at that snapshot and ok=true on success.
+// Returns (0, 0, false) if nothing to redo.
+func (b *fileBuffer) Redo() (row, col int, ok bool) {
 	b.FlushGap()
-	if b.store == nil {
-		return false
-	}
-	snap, ok := b.store.Redo()
-	if !ok {
-		return false
+	snap, ok2 := b.store.Redo()
+	if !ok2 {
+		return 0, 0, false
 	}
 	b.table.Restore(snap)
-	b.Modified = true
-	return true
+	b.modified = true
+	return snap.CursorRow, snap.CursorCol, true
 }
 
 // --- Read operations ---
 
 // String returns the full document text.
-func (b *Buffer) String() string {
+func (b *fileBuffer) String() string {
 	b.FlushGap()
 	return b.table.String()
 }
 
 // LineCount returns the number of lines.
-func (b *Buffer) LineCount() int {
+func (b *fileBuffer) LineCount() int {
 	if b.hotActive {
 		// Gap buffer doesn't change line count of this one line.
 		return b.table.LineCount()
@@ -185,7 +247,7 @@ func (b *Buffer) LineCount() int {
 }
 
 // Line returns line row as a string (no trailing newline).
-func (b *Buffer) Line(row int) string {
+func (b *fileBuffer) Line(row int) string {
 	if b.hotActive && row == b.hotRow {
 		return b.gap.String()
 	}
@@ -193,7 +255,7 @@ func (b *Buffer) Line(row int) string {
 }
 
 // LineRunes returns line row as a rune slice.
-func (b *Buffer) LineRunes(row int) []rune {
+func (b *fileBuffer) LineRunes(row int) []rune {
 	if b.hotActive && row == b.hotRow {
 		return b.gap.Text()
 	}
@@ -201,7 +263,7 @@ func (b *Buffer) LineRunes(row int) []rune {
 }
 
 // LineLen returns the number of runes on line row.
-func (b *Buffer) LineLen(row int) int {
+func (b *fileBuffer) LineLen(row int) int {
 	if b.hotActive && row == b.hotRow {
 		return b.gap.Len()
 	}
@@ -214,49 +276,49 @@ func (b *Buffer) LineLen(row int) int {
 
 // Insert inserts rune r at (row, col).
 // If the gap buffer is active for this row, it goes directly into the gap.
-func (b *Buffer) Insert(row, col int, r rune) {
+func (b *fileBuffer) Insert(row, col int, r rune) {
 	if b.hotActive && row == b.hotRow {
 		b.gap.MoveTo(col)
 		b.gap.Insert(r)
-		b.Modified = true
+		b.modified = true
 		return
 	}
 	b.FlushGap()
 	pos := b.table.PosToOffset(row, col)
 	b.table.Insert(pos, []rune{r})
-	b.Modified = true
+	b.modified = true
 }
 
 // InsertString inserts s at (row, col).
-func (b *Buffer) InsertString(row, col int, s string) {
+func (b *fileBuffer) InsertString(row, col int, s string) {
 	if b.hotActive && row == b.hotRow {
 		b.gap.MoveTo(col)
 		b.gap.InsertSlice([]rune(s))
-		b.Modified = true
+		b.modified = true
 		return
 	}
 	b.FlushGap()
 	pos := b.table.PosToOffset(row, col)
 	b.table.Insert(pos, []rune(s))
-	b.Modified = true
+	b.modified = true
 }
 
 // Newline splits the line at (row, col).
-func (b *Buffer) Newline(row, col int) {
+func (b *fileBuffer) Newline(row, col int) {
 	b.FlushGap()
 	pos := b.table.PosToOffset(row, col)
 	b.table.Insert(pos, []rune{'\n'})
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 }
 
 // DeleteBack deletes the rune before (row, col). Returns new position.
-func (b *Buffer) DeleteBack(row, col int) (newRow, newCol int) {
+func (b *fileBuffer) DeleteBack(row, col int) (newRow, newCol int) {
 	if b.hotActive && row == b.hotRow {
 		if col > 0 {
 			b.gap.MoveTo(col)
 			b.gap.DeleteBefore(1)
-			b.Modified = true
+			b.modified = true
 			return row, col - 1
 		}
 		// Merge with previous line — must flush.
@@ -268,7 +330,7 @@ func (b *Buffer) DeleteBack(row, col int) (newRow, newCol int) {
 	if col > 0 {
 		pos := b.table.PosToOffset(row, col)
 		b.table.Delete(pos-1, pos)
-		b.Modified = true
+		b.modified = true
 		return row, col - 1
 	}
 	if row == 0 {
@@ -279,20 +341,20 @@ func (b *Buffer) DeleteBack(row, col int) (newRow, newCol int) {
 	lineStart := b.table.LineStart(row)
 	// lineStart-1 is the '\n' at the end of the previous line.
 	b.table.Delete(lineStart-1, lineStart)
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 	return row - 1, prevLen
 }
 
 // DeleteRune deletes the rune at (row, col). Returns true if deleted.
-func (b *Buffer) DeleteRune(row, col int) bool {
+func (b *fileBuffer) DeleteRune(row, col int) bool {
 	if b.hotActive && row == b.hotRow {
 		if col >= b.gap.Len() {
 			return false
 		}
 		b.gap.MoveTo(col)
 		b.gap.DeleteAfter(1)
-		b.Modified = true
+		b.modified = true
 		return true
 	}
 	b.FlushGap()
@@ -301,12 +363,12 @@ func (b *Buffer) DeleteRune(row, col int) bool {
 	}
 	pos := b.table.PosToOffset(row, col)
 	b.table.Delete(pos, pos+1)
-	b.Modified = true
+	b.modified = true
 	return true
 }
 
 // DeleteRange deletes from (r1,c1) inclusive to (r2,c2) exclusive.
-func (b *Buffer) DeleteRange(r1, c1, r2, c2 int) (row, col int) {
+func (b *fileBuffer) DeleteRange(r1, c1, r2, c2 int) (row, col int) {
 	b.FlushGap()
 	start := b.table.PosToOffset(r1, c1)
 	end := b.table.PosToOffset(r2, c2)
@@ -314,13 +376,13 @@ func (b *Buffer) DeleteRange(r1, c1, r2, c2 int) (row, col int) {
 		start, end = end, start
 	}
 	b.table.Delete(start, end)
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 	return b.table.OffsetToPos(start)
 }
 
 // DeleteLines deletes lines [r1, r2] inclusive.
-func (b *Buffer) DeleteLines(r1, r2 int) {
+func (b *fileBuffer) DeleteLines(r1, r2 int) {
 	b.FlushGap()
 	if r1 > r2 {
 		r1, r2 = r2, r1
@@ -341,12 +403,12 @@ func (b *Buffer) DeleteLines(r1, r2 int) {
 	if b.table.LineCount() == 0 {
 		b.table.Insert(0, []rune{'\n'})
 	}
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 }
 
 // YankRange returns a copy of the text from (r1,c1) to (r2,c2) exclusive.
-func (b *Buffer) YankRange(r1, c1, r2, c2 int) string {
+func (b *fileBuffer) YankRange(r1, c1, r2, c2 int) string {
 	b.FlushGap()
 	start := b.table.PosToOffset(r1, c1)
 	end := b.table.PosToOffset(r2, c2)
@@ -357,7 +419,7 @@ func (b *Buffer) YankRange(r1, c1, r2, c2 int) string {
 }
 
 // YankLines returns lines [r1,r2] inclusive joined by newlines.
-func (b *Buffer) YankLines(r1, r2 int) string {
+func (b *fileBuffer) YankLines(r1, r2 int) string {
 	b.FlushGap()
 	if r1 > r2 {
 		r1, r2 = r2, r1
@@ -370,25 +432,25 @@ func (b *Buffer) YankLines(r1, r2 int) string {
 }
 
 // InsertLineBelow inserts a blank line after row and returns its index.
-func (b *Buffer) InsertLineBelow(row int) int {
+func (b *fileBuffer) InsertLineBelow(row int) int {
 	b.FlushGap()
 	end := b.table.LineEnd(row)
 	b.table.Insert(end, []rune{'\n'})
-	b.Modified = true
+	b.modified = true
 	return row + 1
 }
 
 // InsertLineAbove inserts a blank line before row and returns its index.
-func (b *Buffer) InsertLineAbove(row int) int {
+func (b *fileBuffer) InsertLineAbove(row int) int {
 	b.FlushGap()
 	start := b.table.LineStart(row)
 	b.table.Insert(start, []rune{'\n'})
-	b.Modified = true
+	b.modified = true
 	return row
 }
 
 // PasteAfter pastes text after col (or below row if linewise).
-func (b *Buffer) PasteAfter(row, col int, text string, linewise bool) (newRow, newCol int) {
+func (b *fileBuffer) PasteAfter(row, col int, text string, linewise bool) (newRow, newCol int) {
 	b.FlushGap()
 	if linewise {
 		newRow := b.InsertLineBelow(row)
@@ -402,20 +464,20 @@ func (b *Buffer) PasteAfter(row, col int, text string, linewise bool) (newRow, n
 			b.table.Insert(lineStart, []rune(l))
 			_ = start
 		}
-		b.Modified = true
+		b.modified = true
 		b.pushSnapshot()
 		return newRow, 0
 	}
 	pos := b.table.PosToOffset(row, col) + 1
 	b.table.Insert(pos, []rune(text))
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 	newRow, newCol = b.table.OffsetToPos(pos + len([]rune(text)) - 1)
 	return newRow, newCol
 }
 
 // PasteBefore pastes text at col (or above row if linewise).
-func (b *Buffer) PasteBefore(row, col int, text string, linewise bool) (newRow, newCol int) {
+func (b *fileBuffer) PasteBefore(row, col int, text string, linewise bool) (newRow, newCol int) {
 	b.FlushGap()
 	if linewise {
 		newRow := b.InsertLineAbove(row)
@@ -427,13 +489,13 @@ func (b *Buffer) PasteBefore(row, col int, text string, linewise bool) (newRow, 
 			lineStart := b.table.LineStart(newRow + i)
 			b.table.Insert(lineStart, []rune(l))
 		}
-		b.Modified = true
+		b.modified = true
 		b.pushSnapshot()
 		return newRow, 0
 	}
 	pos := b.table.PosToOffset(row, col)
 	b.table.Insert(pos, []rune(text))
-	b.Modified = true
+	b.modified = true
 	b.pushSnapshot()
 	return row, col + len([]rune(text)) - 1
 }

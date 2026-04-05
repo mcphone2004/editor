@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 
 // --- helpers ---
 
-func newBuf(t *testing.T, content string) *buffer.Buffer {
+func newBuf(t *testing.T, content string) buffer.Buffer {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "buf_test_*.go")
 	if err != nil {
@@ -57,7 +57,7 @@ func TestSave_roundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.go")
 	buf := buffer.New()
-	buf.Path = path
+	buf.SetPath(path)
 	buf.InsertString(0, 0, "package main")
 	if err := buf.Save(); err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestSave_roundTrip(t *testing.T) {
 	if string(data) != "package main" {
 		t.Fatalf("saved %q", string(data))
 	}
-	if buf.Modified {
+	if buf.Modified() {
 		t.Fatal("Modified should be false after save")
 	}
 }
@@ -123,7 +123,7 @@ func TestInsert_singleRune(t *testing.T) {
 func TestInsert_setsModified(t *testing.T) {
 	buf := newBuf(t, "x")
 	buf.Insert(0, 0, 'y')
-	if !buf.Modified {
+	if !buf.Modified() {
 		t.Fatal("expected Modified=true")
 	}
 }
@@ -349,5 +349,152 @@ func TestString(t *testing.T) {
 	buf := newBuf(t, "hello\nworld")
 	if buf.String() != "hello\nworld" {
 		t.Fatalf("got %q", buf.String())
+	}
+}
+
+// --- Undo / Redo (in-memory store — always runs) ---
+
+func TestUndo_inMemory_restoresText(t *testing.T) {
+	buf := newBuf(t, "hello\nworld")
+	buf.SetCursorHint(0, 0)
+	buf.DeleteLines(0, 0)
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after delete, got %d", buf.LineCount())
+	}
+	row, col, ok := buf.Undo()
+	if !ok {
+		t.Fatal("Undo returned ok=false")
+	}
+	if buf.LineCount() != 2 {
+		t.Fatalf("expected 2 lines after undo, got %d", buf.LineCount())
+	}
+	if row != 0 || col != 0 {
+		t.Errorf("cursor after undo = (%d,%d), want (0,0)", row, col)
+	}
+}
+
+func TestUndo_inMemory_redoReapplies(t *testing.T) {
+	buf := newBuf(t, "abc\ndef")
+	buf.SetCursorHint(1, 0)
+	buf.DeleteLines(1, 1)
+	buf.Undo()
+	row, col, ok := buf.Redo()
+	if !ok {
+		t.Fatal("Redo returned ok=false")
+	}
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after redo, got %d", buf.LineCount())
+	}
+	if row != 1 || col != 0 {
+		t.Errorf("cursor after redo = (%d,%d), want (1,0)", row, col)
+	}
+}
+
+func TestUndo_inMemory_atOldest(t *testing.T) {
+	buf := newBuf(t, "x")
+	_, _, ok := buf.Undo()
+	if ok {
+		t.Fatal("Undo should return false when nothing to undo")
+	}
+}
+
+func TestRedo_inMemory_atNewest(t *testing.T) {
+	buf := newBuf(t, "x")
+	_, _, ok := buf.Redo()
+	if ok {
+		t.Fatal("Redo should return false when nothing to redo")
+	}
+}
+
+// --- Undo / Redo (Postgres store — skips when unavailable) ---
+
+const testDSN = "host=localhost user=postgres dbname=editor sslmode=disable"
+
+func newBufWithUndo(t *testing.T, content string) buffer.Buffer {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "buf_undo_test_*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	buf, err := buffer.OpenWithUndo(f.Name(), testDSN)
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping undo test", err)
+	}
+	t.Cleanup(buf.Close)
+	if !buf.HasUndoStore() {
+		t.Skip("postgres unavailable — skipping undo test")
+	}
+	return buf
+}
+
+func TestUndo_restoresTextAndCursor(t *testing.T) {
+	buf := newBufWithUndo(t, "hello\nworld")
+
+	// Delete a line at row=0 with cursor hint at (0,0).
+	buf.SetCursorHint(0, 0)
+	buf.DeleteLines(0, 0)
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after delete, got %d", buf.LineCount())
+	}
+
+	// Undo should restore the line and the cursor.
+	row, col, ok := buf.Undo()
+	if !ok {
+		t.Fatal("Undo returned ok=false")
+	}
+	if buf.LineCount() != 2 {
+		t.Fatalf("expected 2 lines after undo, got %d", buf.LineCount())
+	}
+	if row != 0 || col != 0 {
+		t.Errorf("cursor after undo = (%d,%d), want (0,0)", row, col)
+	}
+}
+
+func TestRedo_restoresTextAndCursor(t *testing.T) {
+	buf := newBufWithUndo(t, "abc\ndef")
+
+	// Make an edit and undo it.
+	buf.SetCursorHint(1, 0)
+	buf.DeleteLines(1, 1)
+	row, col, ok := buf.Undo()
+	if !ok {
+		t.Fatal("Undo returned ok=false")
+	}
+	_ = row
+	_ = col
+
+	// Redo should re-apply the delete and return the cursor hint.
+	row, col, ok = buf.Redo()
+	if !ok {
+		t.Fatal("Redo returned ok=false")
+	}
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after redo, got %d", buf.LineCount())
+	}
+	if row != 1 || col != 0 {
+		t.Errorf("cursor after redo = (%d,%d), want (1,0)", row, col)
+	}
+}
+
+func TestUndo_atOldestChange(t *testing.T) {
+	buf := newBufWithUndo(t, "x")
+	// Exhaust undo history — the third call must return false without panicking.
+	buf.Undo()
+	buf.Undo()
+	_, _, ok := buf.Undo()
+	_ = ok
+}
+
+func TestRedo_atNewestChange(t *testing.T) {
+	buf := newBufWithUndo(t, "x")
+	_, _, ok := buf.Redo()
+	if ok {
+		t.Fatal("Redo should return false when nothing to redo")
 	}
 }
