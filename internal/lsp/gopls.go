@@ -277,6 +277,12 @@ func (s *Session) Notifications() <-chan Notification {
 	return s.client.Notifications
 }
 
+// Exited returns a channel that is closed when the gopls process exits,
+// whether due to a crash, explicit shutdown, or any other reason.
+func (s *Session) Exited() <-chan struct{} {
+	return s.client.exited
+}
+
 // ParseDiagnostics decodes a publishDiagnostics notification.
 func ParseDiagnostics(n Notification) (PublishDiagnosticsParams, error) {
 	var p PublishDiagnosticsParams

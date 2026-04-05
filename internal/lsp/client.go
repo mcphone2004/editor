@@ -33,7 +33,8 @@ type Client struct {
 	// Notifications receives server-initiated messages (diagnostics, etc.).
 	Notifications chan Notification
 
-	done chan struct{}
+	done   chan struct{} // closed by Close() to stop readLoop gracefully
+	exited chan struct{} // closed by readLoop when it exits for any reason
 }
 
 type request struct {
@@ -88,6 +89,7 @@ func Start(ctx context.Context, command string, args ...string) (*Client, error)
 		pending:       make(map[int64]chan *response),
 		Notifications: make(chan Notification, 64),
 		done:          make(chan struct{}),
+		exited:        make(chan struct{}),
 	}
 	go c.readLoop()
 	return c, nil
@@ -180,6 +182,7 @@ func (c *Client) readLoop() {
 		}
 		c.pending = nil
 		c.mu.Unlock()
+		close(c.exited)
 	}()
 
 	for {

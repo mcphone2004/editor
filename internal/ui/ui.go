@@ -88,6 +88,8 @@ var (
 
 // --- Message types for async operations ---
 
+type msgLSPExited struct{}
+
 type msgDiagnostics struct {
 	path  string
 	diags []editor.Diagnostic
@@ -147,8 +149,11 @@ func New(path string, lspSession *lsp.Session, tel telemetry.Telemetry) (*Model,
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	if m.lsp != nil && m.buf.Path != "" {
-		cmds = append(cmds, m.openDoc(), m.listenNotifications())
+	if m.lsp != nil {
+		cmds = append(cmds, m.listenLSPExit())
+		if m.buf.Path != "" {
+			cmds = append(cmds, m.openDoc(), m.listenNotifications())
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -162,6 +167,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case msgLSPExited:
+		m.lsp = nil
 
 	case msgDiagnostics:
 		m.mergeDiagnostics(msg.path, msg.diags)
@@ -417,6 +425,14 @@ func (m *Model) renderCompletion() string {
 }
 
 // --- LSP commands ---
+
+func (m *Model) listenLSPExit() tea.Cmd {
+	exited := m.lsp.Exited()
+	return func() tea.Msg {
+		<-exited
+		return msgLSPExited{}
+	}
+}
 
 func (m *Model) openDoc() tea.Cmd {
 	return func() tea.Msg {
