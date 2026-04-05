@@ -352,7 +352,61 @@ func TestString(t *testing.T) {
 	}
 }
 
-// --- Undo / Redo ---
+// --- Undo / Redo (in-memory store — always runs) ---
+
+func TestUndo_inMemory_restoresText(t *testing.T) {
+	buf := newBuf(t, "hello\nworld")
+	buf.SetCursorHint(0, 0)
+	buf.DeleteLines(0, 0)
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after delete, got %d", buf.LineCount())
+	}
+	row, col, ok := buf.Undo()
+	if !ok {
+		t.Fatal("Undo returned ok=false")
+	}
+	if buf.LineCount() != 2 {
+		t.Fatalf("expected 2 lines after undo, got %d", buf.LineCount())
+	}
+	if row != 0 || col != 0 {
+		t.Errorf("cursor after undo = (%d,%d), want (0,0)", row, col)
+	}
+}
+
+func TestUndo_inMemory_redoReapplies(t *testing.T) {
+	buf := newBuf(t, "abc\ndef")
+	buf.SetCursorHint(1, 0)
+	buf.DeleteLines(1, 1)
+	buf.Undo()
+	row, col, ok := buf.Redo()
+	if !ok {
+		t.Fatal("Redo returned ok=false")
+	}
+	if buf.LineCount() != 1 {
+		t.Fatalf("expected 1 line after redo, got %d", buf.LineCount())
+	}
+	if row != 1 || col != 0 {
+		t.Errorf("cursor after redo = (%d,%d), want (1,0)", row, col)
+	}
+}
+
+func TestUndo_inMemory_atOldest(t *testing.T) {
+	buf := newBuf(t, "x")
+	_, _, ok := buf.Undo()
+	if ok {
+		t.Fatal("Undo should return false when nothing to undo")
+	}
+}
+
+func TestRedo_inMemory_atNewest(t *testing.T) {
+	buf := newBuf(t, "x")
+	_, _, ok := buf.Redo()
+	if ok {
+		t.Fatal("Redo should return false when nothing to redo")
+	}
+}
+
+// --- Undo / Redo (Postgres store — skips when unavailable) ---
 
 const testDSN = "host=localhost user=postgres dbname=editor sslmode=disable"
 
