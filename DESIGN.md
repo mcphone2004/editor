@@ -17,19 +17,19 @@ A vim-like terminal editor intended as a daily driver for Go programming, with n
 
 A pure piece table is correct but creates a new piece on every keystroke in insert mode. A gap buffer handles bursts of typing at O(1), then flushes a single piece to the table on mode exit. This mirrors how VS Code combines its piece tree with a batch flushing strategy.
 
-### Piece table (`internal/buffer/piece`)
+### Piece table (`buffer/piece`)
 
 - **Two backing arrays**: `original` (file content, never modified) and `add` (append-only new text).
 - **Piece sequence**: `[]Piece{which, start, length}` — the document is the concatenation of the referenced spans.
 - **Line cache**: `lineStarts []int` rebuilt lazily on first line access after a write. Dirty flag avoids redundant scans.
 - **Snapshots**: `Snapshot{Pieces, AddLen}` captures the full document state cheaply (pieces slice + add buffer watermark). Restoring a snapshot never touches the original or add buffers — only the piece sequence is replaced.
 
-### Gap buffer (`internal/buffer/gap`)
+### Gap buffer (`buffer/gap`)
 
 - Standard rune-array gap buffer. Gap is sized at 64 runes initially and doubles as needed.
 - Only active during insert mode on the "hot" line. `Buffer.ActivateGap(row, col)` loads the line; `Buffer.FlushGap()` writes it back as a single `Insert` into the piece table.
 
-### Postgres undo (`internal/buffer/piece/store.go`)
+### Postgres undo (`buffer/piece/store.go`)
 
 Each `FlushGap` + significant edit pushes a `Snapshot` row to `editor_undo_entries`. The schema is:
 
@@ -46,7 +46,7 @@ Undo is gracefully degraded: if the Postgres connection fails, the editor still 
 
 ---
 
-## Editor engine (`internal/editor`)
+## Editor engine (`editor`)
 
 ### Modal editing
 
@@ -68,7 +68,7 @@ Digits are accumulated in `pendingCount` across all modes that support counts (n
 
 ---
 
-## LSP integration (`internal/lsp`)
+## LSP integration (`lsp`)
 
 ### Transport
 
@@ -91,7 +91,7 @@ On every save, `go vet ./...` is run in a `tea.Cmd` goroutine and its output is 
 
 ---
 
-## UI (`internal/ui`)
+## UI (`ui`)
 
 The bubbletea `Model` owns:
 - The `Editor` (key dispatch, mode state)
@@ -105,7 +105,7 @@ The bubbletea `Model` owns:
 
 ---
 
-## Telemetry (`internal/telemetry`)
+## Telemetry (`telemetry`)
 
 Events are written as JSONL to `~/.cache/editor/telemetry.jsonl` (overridable via `EDITOR_TELEMETRY`, disabled with `EDITOR_TELEMETRY=off`).
 

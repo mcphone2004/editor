@@ -17,13 +17,13 @@ make vet            # go vet ./...
 
 Run a single package's tests:
 ```sh
-go test -race -v ./internal/editor/...
+go test -race -v ./editor/...
 ```
 
 Postgres tests are skipped unless `EDITOR_TEST_DSN` is set:
 ```sh
 EDITOR_TEST_DSN="host=localhost user=postgres dbname=editor sslmode=disable" \
-  go test -race -v ./internal/buffer/piece/pgstore/...
+  go test -race -v ./buffer/piece/pgstore/...
 ```
 
 Disable telemetry during development:
@@ -38,38 +38,43 @@ EDITOR_TELEMETRY=off ./editor myfile.go
 | Package | File(s) | Purpose |
 |---|---|---|
 | `main` | `main.go` | Entry point: wires telemetry, gopls, bubbletea |
-| `internal/buffer` | `buffer.go` | `Buffer` facade — unified API over gap + piece table |
-| `internal/buffer/gap` | `gap.go` | Gap buffer for O(1) insert-mode editing |
-| `internal/buffer/piece` | `table.go`, `store.go` | Piece table (canonical document) + undo store interface |
-| `internal/buffer/piece/pgstore` | `pgstore.go` | Postgres-backed undo store |
-| `internal/buffer/piece/memstore` | `memstore.go` | In-memory undo store (fallback / tests) |
-| `internal/editor` | `editor.go`, `motion.go`, `textobject.go` | Modal editing engine (Normal/Insert/Visual/Command) — no UI dependency |
-| `internal/lsp` | `client.go`, `gopls.go` | JSON-RPC 2.0 LSP client + gopls session |
-| `internal/ui` | `ui.go` | bubbletea Model — owns Editor, Buffer, lsp.Session |
-| `internal/telemetry` | `telemetry.go` | JSONL event log at `~/.cache/editor/telemetry.jsonl` |
-| `mocks/` | generated | mockery mocks for all interfaces |
+| `buffer` | `buffer.go` | `Buffer` facade — unified API over gap + piece table |
+| `buffer/gap` | `gap.go` | Gap buffer for O(1) insert-mode editing |
+| `buffer/gap/mock` | `mock_Buffer.go` | Mock for `gap.Buffer` |
+| `buffer/mock` | `mock_Buffer.go` | Mock for `buffer.Buffer` |
+| `buffer/piece` | `table.go`, `store.go` | Piece table (canonical document) + undo store interface |
+| `buffer/piece/memstore` | `memstore.go` | In-memory undo store (fallback / tests) |
+| `buffer/piece/pgstore` | `pgstore.go` | Postgres-backed undo store |
+| `buffer/piece/mockstore` | `mock_UndoStore.go` | Mock for `piece.UndoStore` |
+| `buffer/piece/tablemock` | `mock_Table.go` | Mock for `piece.Table` |
+| `editor` | `editor.go`, `motion.go`, `textobject.go` | Modal editing engine (Normal/Insert/Visual/Command) — no UI dependency |
+| `editor/mock` | `mock_Editor.go` | Mock for `editor.Editor` |
+| `lsp` | `client.go`, `gopls.go` | JSON-RPC 2.0 LSP client + gopls session |
+| `lsp/mock` | `mock_Session.go` | Mock for `lsp.Session` |
+| `ui` | `ui.go` | bubbletea Model — owns Editor, Buffer, lsp.Session |
+| `telemetry` | `telemetry.go` | JSONL event log at `~/.cache/editor/telemetry.jsonl` |
 
 ---
 
 ## Constraints for AI changes
 
 - **goleak in every `TestMain`**: all test packages must call `goleak.VerifyTestMain(m)`. Never remove it.
-- **mockery for mocks**: regenerate mocks with `mockery --all` (or per-interface). Never write mocks by hand.
+- **mockery for mocks**: regenerate mocks with `mockery` from the repo root. Never write mocks by hand.
 - **golangci-lint must pass**: `make lint` must be clean before any change is considered done.
-- **Engine has no UI dependency**: `internal/editor` must not import `internal/ui` or bubbletea.
-- **No direct bubbletea in buffer layer**: `internal/buffer` must not import bubbletea.
+- **Engine has no UI dependency**: `editor` must not import `ui` or bubbletea.
+- **No direct bubbletea in buffer layer**: `buffer` must not import bubbletea.
 - **Postgres undo is optional**: buffer must work without a DSN; degraded-gracefully path must be preserved.
 
 ---
 
 ## Key interfaces
 
-- `buffer.Buffer` (`internal/buffer/buffer.go`) — what the editor engine talks to
-- `gap.Buffer` (`internal/buffer/gap/gap.go`) — gap buffer contract
-- `piece.Table` (`internal/buffer/piece/table.go`) — piece table contract
-- `piece.UndoStore` (`internal/buffer/piece/store.go`) — undo persistence contract
-- `lsp.Session` (`internal/lsp/gopls.go`) — LSP operations the UI calls
-- `telemetry.Telemetry` (`internal/telemetry/telemetry.go`) — event logging contract
+- `buffer.Buffer` (`buffer/buffer.go`) — what the editor engine talks to
+- `gap.Buffer` (`buffer/gap/gap.go`) — gap buffer contract
+- `piece.Table` (`buffer/piece/table.go`) — piece table contract
+- `piece.UndoStore` (`buffer/piece/store.go`) — undo persistence contract
+- `lsp.Session` (`lsp/gopls.go`) — LSP operations the UI calls
+- `telemetry.Telemetry` (`telemetry/telemetry.go`) — event logging contract
 
 ---
 
