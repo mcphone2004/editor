@@ -3,7 +3,7 @@ package gap_test
 import (
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/buffer/gap"
+	"github.com/anthonybrice/editor/buffer/gap"
 	"go.uber.org/goleak"
 )
 

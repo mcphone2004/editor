@@ -4,7 +4,7 @@
 // History is lost when the editor exits; use pgstore for persistence.
 package memstore
 
-import "github.com/anthonybrice/editor/internal/buffer/piece"
+import "github.com/anthonybrice/editor/buffer/piece"
 
 // MemStore is an in-memory undo/redo stack backed by a slice of Snapshots.
 type MemStore struct {

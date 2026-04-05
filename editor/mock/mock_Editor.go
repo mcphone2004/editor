@@ -5,8 +5,8 @@
 package mock
 
 import (
-	"github.com/anthonybrice/editor/internal/buffer"
-	"github.com/anthonybrice/editor/internal/editor"
+	"github.com/anthonybrice/editor/buffer"
+	"github.com/anthonybrice/editor/editor"
 	mock "github.com/stretchr/testify/mock"
 )
 

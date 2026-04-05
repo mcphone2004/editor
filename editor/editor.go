@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/anthonybrice/editor/internal/buffer"
+	"github.com/anthonybrice/editor/buffer"
 )
 
 // Mode represents the current vim editing mode.

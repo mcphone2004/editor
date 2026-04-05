@@ -23,10 +23,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthonybrice/editor/internal/buffer/gap"
-	"github.com/anthonybrice/editor/internal/buffer/piece"
-	"github.com/anthonybrice/editor/internal/buffer/piece/memstore"
-	"github.com/anthonybrice/editor/internal/buffer/piece/pgstore"
+	"github.com/anthonybrice/editor/buffer/gap"
+	"github.com/anthonybrice/editor/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece/memstore"
+	"github.com/anthonybrice/editor/buffer/piece/pgstore"
 )
 
 // Buffer is the interface for the editor's view of an open file.

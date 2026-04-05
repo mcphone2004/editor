@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/anthonybrice/editor/internal/lsp"
-	"github.com/anthonybrice/editor/internal/telemetry"
-	"github.com/anthonybrice/editor/internal/ui"
+	"github.com/anthonybrice/editor/lsp"
+	"github.com/anthonybrice/editor/telemetry"
+	"github.com/anthonybrice/editor/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

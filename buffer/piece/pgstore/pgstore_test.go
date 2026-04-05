@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/buffer/piece"
-	"github.com/anthonybrice/editor/internal/buffer/piece/pgstore"
+	"github.com/anthonybrice/editor/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece/pgstore"
 	"go.uber.org/goleak"
 )
 

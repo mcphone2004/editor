@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece"
 	"go.uber.org/goleak"
 )
 

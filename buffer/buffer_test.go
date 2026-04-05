@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/buffer"
+	"github.com/anthonybrice/editor/buffer"
 	"go.uber.org/goleak"
 )
 

@@ -1,12 +1,12 @@
 packages:
-  github.com/anthonybrice/editor/internal/buffer/gap:
+  github.com/anthonybrice/editor/buffer/gap:
     interfaces:
       Buffer:
         config:
           dir: "{{.InterfaceDir}}/mock"
           pkgname: mock
           filename: mock_Buffer.go
-  github.com/anthonybrice/editor/internal/buffer/piece:
+  github.com/anthonybrice/editor/buffer/piece:
     interfaces:
       Table:
         config:
@@ -18,21 +18,21 @@ packages:
           dir: "{{.InterfaceDir}}/mockstore"
           pkgname: mockstore
           filename: mock_UndoStore.go
-  github.com/anthonybrice/editor/internal/buffer:
+  github.com/anthonybrice/editor/buffer:
     interfaces:
       Buffer:
         config:
           dir: "{{.InterfaceDir}}/mock"
           pkgname: mock
           filename: mock_Buffer.go
-  github.com/anthonybrice/editor/internal/editor:
+  github.com/anthonybrice/editor/editor:
     interfaces:
       Editor:
         config:
           dir: "{{.InterfaceDir}}/mock"
           pkgname: mock
           filename: mock_Editor.go
-  github.com/anthonybrice/editor/internal/lsp:
+  github.com/anthonybrice/editor/lsp:
     interfaces:
       Session:
         config:
