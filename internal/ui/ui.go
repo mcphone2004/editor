@@ -420,7 +420,7 @@ func (m *Model) renderCompletion() string {
 
 func (m *Model) openDoc() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidOpen(m.buf.Path, m.buf.String())
+		_ = m.lsp.DidOpen(context.Background(), m.buf.Path, m.buf.String())
 		return nil
 	}
 }
@@ -428,14 +428,14 @@ func (m *Model) openDoc() tea.Cmd {
 func (m *Model) didChange() tea.Cmd {
 	text := m.buf.String()
 	return func() tea.Msg {
-		_ = m.lsp.DidChange(m.buf.Path, text)
+		_ = m.lsp.DidChange(context.Background(), m.buf.Path, text)
 		return nil
 	}
 }
 
 func (m *Model) didSave() tea.Cmd {
 	return func() tea.Msg {
-		_ = m.lsp.DidSave(m.buf.Path)
+		_ = m.lsp.DidSave(context.Background(), m.buf.Path)
 		return nil
 	}
 }
@@ -444,7 +444,7 @@ func (m *Model) gotoDefinition() tea.Cmd {
 	cur := m.ed.Cursor()
 	path := m.buf.Path
 	return func() tea.Msg {
-		locs, err := m.lsp.Definition(path, cur.Row, cur.Col)
+		locs, err := m.lsp.Definition(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(locs) == 0 {
 			return msgHover{text: fmt.Sprintf("definition: %v", err)}
 		}
@@ -464,7 +464,7 @@ func (m *Model) hover() tea.Cmd {
 	cur := m.ed.Cursor()
 	path := m.buf.Path
 	return func() tea.Msg {
-		text, err := m.lsp.Hover(path, cur.Row, cur.Col)
+		text, err := m.lsp.Hover(context.Background(), path, cur.Row, cur.Col)
 		if err != nil {
 			return msgHover{text: fmt.Sprintf("hover error: %v", err)}
 		}
@@ -476,7 +476,7 @@ func (m *Model) complete() tea.Cmd {
 	cur := m.ed.Cursor()
 	path := m.buf.Path
 	return func() tea.Msg {
-		items, err := m.lsp.Completion(path, cur.Row, cur.Col)
+		items, err := m.lsp.Completion(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(items) == 0 {
 			return msgCompletion{}
 		}
@@ -583,7 +583,7 @@ func (m *Model) openFile(path string) tea.Cmd {
 		m.ed = editor.New(buf)
 		m.scroll = 0
 		if m.lsp != nil {
-			_ = m.lsp.DidOpen(path, buf.String())
+			_ = m.lsp.DidOpen(context.Background(), path, buf.String())
 		}
 		return nil
 	}

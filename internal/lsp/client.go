@@ -93,14 +93,9 @@ func Start(ctx context.Context, command string, args ...string) (*Client, error)
 	return c, nil
 }
 
-// Call sends a request with the given method+params and blocks until the
-// server replies.  The result is JSON-unmarshalled into result (may be nil).
-func (c *Client) Call(method string, params, result any) error {
-	return c.CallCtx(context.Background(), method, params, result)
-}
-
-// CallCtx is like Call but respects ctx cancellation/timeout.
-func (c *Client) CallCtx(ctx context.Context, method string, params, result any) error {
+// Call sends a request and blocks until the server replies or ctx is done.
+// The result is JSON-unmarshalled into result (may be nil).
+func (c *Client) Call(ctx context.Context, method string, params, result any) error {
 	id := c.nextID.Add(1)
 	ch := make(chan *response, 1)
 
@@ -140,15 +135,25 @@ func (c *Client) CallCtx(ctx context.Context, method string, params, result any)
 }
 
 // Notify sends a notification (no response expected).
-func (c *Client) Notify(method string, params any) error {
+func (c *Client) Notify(ctx context.Context, method string, params any) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("lsp: notify %s: %w", method, err)
+	}
 	return c.send(&request{JSONRPC: "2.0", Method: method, Params: params})
 }
 
 // Close shuts down the language server gracefully.
-func (c *Client) Close() error {
+func (c *Client) Close(ctx context.Context) error {
 	close(c.done)
 	_ = c.stdin.Close()
-	return c.cmd.Wait()
+	done := make(chan error, 1)
+	go func() { done <- c.cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Client) send(r *request) error {

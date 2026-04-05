@@ -41,7 +41,7 @@ func main() {
 	code := run(path, lspSession, tel)
 	tel.Close()
 	if lspSession != nil {
-		lspSession.Shutdown()
+		lspSession.Shutdown(context.Background())
 	}
 	if code != 0 {
 		os.Exit(code)
