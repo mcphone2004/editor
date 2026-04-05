@@ -102,10 +102,25 @@ type CompletionList struct {
 	Items        []CompletionItem `json:"items"`
 }
 
-// --- Session ---
+// --- Session interface ---
 
-// Session wraps a Client with gopls-specific methods.
-type Session struct {
+// Session is the interface for an LSP session.
+type Session interface {
+	DidOpen(ctx context.Context, path, text string) error
+	DidChange(ctx context.Context, path, text string) error
+	DidSave(ctx context.Context, path string) error
+	Definition(ctx context.Context, path string, line, char int) ([]Location, error)
+	Hover(ctx context.Context, path string, line, char int) (string, error)
+	Completion(ctx context.Context, path string, line, char int) ([]CompletionItem, error)
+	Notifications() <-chan Notification
+	Exited() <-chan struct{}
+	Shutdown(ctx context.Context)
+}
+
+// --- GoplsSession ---
+
+// GoplsSession wraps a Client with gopls-specific methods.
+type GoplsSession struct {
 	client  *Client
 	rootURI string
 	version map[string]int // uri → document version
@@ -114,7 +129,7 @@ type Session struct {
 // StartGopls launches gopls and performs the LSP handshake.
 // rootDir should be the workspace root (e.g. the module root).
 // ctx controls the timeout for the initialize handshake; use context.WithTimeout.
-func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
+func StartGopls(ctx context.Context, rootDir string) (*GoplsSession, error) {
 	c, err := Start(ctx, "gopls", "serve")
 	if err != nil {
 		return nil, fmt.Errorf("gopls: start: %w", err)
@@ -125,7 +140,7 @@ func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
 	}
 	rootURI := "file://" + abs
 
-	s := &Session{client: c, rootURI: rootURI, version: make(map[string]int)}
+	s := &GoplsSession{client: c, rootURI: rootURI, version: make(map[string]int)}
 
 	if err := s.initialize(ctx); err != nil {
 		_ = c.Close(ctx)
@@ -134,7 +149,7 @@ func StartGopls(ctx context.Context, rootDir string) (*Session, error) {
 	return s, nil
 }
 
-func (s *Session) initialize(ctx context.Context) error {
+func (s *GoplsSession) initialize(ctx context.Context) error {
 	params := map[string]any{
 		"processId": os.Getpid(),
 		"rootUri":   s.rootURI,
@@ -165,7 +180,7 @@ func (s *Session) initialize(ctx context.Context) error {
 }
 
 // DidOpen notifies gopls that a file has been opened.
-func (s *Session) DidOpen(ctx context.Context, path, text string) error {
+func (s *GoplsSession) DidOpen(ctx context.Context, path, text string) error {
 	uri := pathToURI(path)
 	s.version[uri] = 1
 	return s.client.Notify(ctx, "textDocument/didOpen", map[string]any{
@@ -179,7 +194,7 @@ func (s *Session) DidOpen(ctx context.Context, path, text string) error {
 }
 
 // DidChange notifies gopls of a full-text update (we use full sync).
-func (s *Session) DidChange(ctx context.Context, path, text string) error {
+func (s *GoplsSession) DidChange(ctx context.Context, path, text string) error {
 	uri := pathToURI(path)
 	s.version[uri]++
 	return s.client.Notify(ctx, "textDocument/didChange", map[string]any{
@@ -191,7 +206,7 @@ func (s *Session) DidChange(ctx context.Context, path, text string) error {
 }
 
 // DidSave notifies gopls that a file was saved.
-func (s *Session) DidSave(ctx context.Context, path string) error {
+func (s *GoplsSession) DidSave(ctx context.Context, path string) error {
 	uri := pathToURI(path)
 	return s.client.Notify(ctx, "textDocument/didSave", map[string]any{
 		"textDocument": TextDocumentIdentifier{URI: uri},
@@ -200,7 +215,7 @@ func (s *Session) DidSave(ctx context.Context, path string) error {
 
 // Definition requests go-to-definition for (path, line, char).
 // Returns a list of target locations.
-func (s *Session) Definition(ctx context.Context, path string, line, char int) ([]Location, error) {
+func (s *GoplsSession) Definition(ctx context.Context, path string, line, char int) ([]Location, error) {
 	params := TextDocumentPositionParams{
 		TextDocument: TextDocumentIdentifier{URI: pathToURI(path)},
 		Position:     Position{Line: line, Character: char},
@@ -227,7 +242,7 @@ func (s *Session) Definition(ctx context.Context, path string, line, char int) (
 
 // Hover requests hover information for (path, line, char).
 // Returns the markdown/plaintext content, or ("", nil) if nothing to show.
-func (s *Session) Hover(ctx context.Context, path string, line, char int) (string, error) {
+func (s *GoplsSession) Hover(ctx context.Context, path string, line, char int) (string, error) {
 	params := TextDocumentPositionParams{
 		TextDocument: TextDocumentIdentifier{URI: pathToURI(path)},
 		Position:     Position{Line: line, Character: char},
@@ -247,7 +262,7 @@ func (s *Session) Hover(ctx context.Context, path string, line, char int) (strin
 }
 
 // Completion requests completion items at (path, line, char).
-func (s *Session) Completion(ctx context.Context, path string, line, char int) ([]CompletionItem, error) {
+func (s *GoplsSession) Completion(ctx context.Context, path string, line, char int) ([]CompletionItem, error) {
 	params := map[string]any{
 		"textDocument": TextDocumentIdentifier{URI: pathToURI(path)},
 		"position":     Position{Line: line, Character: char},
@@ -266,20 +281,20 @@ func (s *Session) Completion(ctx context.Context, path string, line, char int) (
 }
 
 // Shutdown sends shutdown + exit to gopls.
-func (s *Session) Shutdown(ctx context.Context) {
+func (s *GoplsSession) Shutdown(ctx context.Context) {
 	_ = s.client.Call(ctx, "shutdown", nil, nil)
 	_ = s.client.Notify(ctx, "exit", nil)
 	_ = s.client.Close(ctx)
 }
 
 // Notifications returns the raw notification channel from the underlying client.
-func (s *Session) Notifications() <-chan Notification {
+func (s *GoplsSession) Notifications() <-chan Notification {
 	return s.client.Notifications
 }
 
 // Exited returns a channel that is closed when the gopls process exits,
 // whether due to a crash, explicit shutdown, or any other reason.
-func (s *Session) Exited() <-chan struct{} {
+func (s *GoplsSession) Exited() <-chan struct{} {
 	return s.client.exited
 }
 

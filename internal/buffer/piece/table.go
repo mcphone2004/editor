@@ -32,12 +32,35 @@ type Piece struct {
 
 // Snapshot captures a complete piece table state for undo/redo.
 type Snapshot struct {
-	Pieces []Piece
-	AddLen int // how many runes of the add buffer are in use
+	Pieces    []Piece
+	AddLen    int // how many runes of the add buffer are in use
+	CursorRow int
+	CursorCol int
 }
 
-// Table is the piece table document.
-type Table struct {
+// Table is the interface implemented by the piece table document.
+type Table interface {
+	Len() int
+	LineCount() int
+	LineStart(row int) int
+	LineEnd(row int) int
+	LineLen(row int) int
+	Line(row int) string
+	LineRunes(row int) []rune
+	PosToOffset(row, col int) int
+	OffsetToPos(offset int) (row, col int)
+	Slice(start, end int) []rune
+	String() string
+	Insert(pos int, text []rune)
+	Delete(start, end int)
+	InsertLine(row int, text string)
+	Lines() []string
+	Snapshot() Snapshot
+	Restore(s Snapshot)
+}
+
+// table is the concrete piece table document.
+type table struct {
 	original []rune
 	add      []rune
 
@@ -50,15 +73,15 @@ type Table struct {
 }
 
 // New returns an empty Table.
-func New() *Table {
-	t := &Table{pieces: []Piece{}}
+func New() Table {
+	t := &table{pieces: []Piece{}}
 	t.lineDirty = true
 	return t
 }
 
 // Load initialises a Table with existing content (e.g. a file).
-func Load(content []rune) *Table {
-	t := &Table{
+func Load(content []rune) Table {
+	t := &table{
 		original: content,
 		add:      make([]rune, 0, 4096),
 	}
@@ -70,14 +93,14 @@ func Load(content []rune) *Table {
 }
 
 // Snapshot returns the current piece sequence and add-buffer length.
-func (t *Table) Snapshot() Snapshot {
+func (t *table) Snapshot() Snapshot {
 	pieces := make([]Piece, len(t.pieces))
 	copy(pieces, t.pieces)
 	return Snapshot{Pieces: pieces, AddLen: len(t.add)}
 }
 
 // Restore replaces the piece sequence with a previously saved snapshot.
-func (t *Table) Restore(s Snapshot) {
+func (t *table) Restore(s Snapshot) {
 	t.pieces = make([]Piece, len(s.Pieces))
 	copy(t.pieces, s.Pieces)
 	t.add = t.add[:s.AddLen]
@@ -85,7 +108,7 @@ func (t *Table) Restore(s Snapshot) {
 }
 
 // Len returns the total number of runes in the document.
-func (t *Table) Len() int {
+func (t *table) Len() int {
 	n := 0
 	for _, p := range t.pieces {
 		n += p.Length
@@ -94,13 +117,13 @@ func (t *Table) Len() int {
 }
 
 // LineCount returns the number of lines (always >= 1).
-func (t *Table) LineCount() int {
+func (t *table) LineCount() int {
 	t.rebuildLines()
 	return len(t.lineStarts)
 }
 
 // LineStart returns the document rune offset for the beginning of line row.
-func (t *Table) LineStart(row int) int {
+func (t *table) LineStart(row int) int {
 	t.rebuildLines()
 	if row < 0 {
 		return 0
@@ -113,7 +136,7 @@ func (t *Table) LineStart(row int) int {
 
 // LineEnd returns the document rune offset of the last rune on line row
 // (the position of the '\n', or end-of-document if the last line has none).
-func (t *Table) LineEnd(row int) int {
+func (t *table) LineEnd(row int) int {
 	t.rebuildLines()
 	if row+1 < len(t.lineStarts) {
 		return t.lineStarts[row+1] - 1 // position of '\n'
@@ -122,12 +145,12 @@ func (t *Table) LineEnd(row int) int {
 }
 
 // LineLen returns the number of runes on line row, excluding the newline.
-func (t *Table) LineLen(row int) int {
+func (t *table) LineLen(row int) int {
 	return t.LineEnd(row) - t.LineStart(row)
 }
 
 // Line returns the text of line row as a string (no trailing newline).
-func (t *Table) Line(row int) string {
+func (t *table) Line(row int) string {
 	start := t.LineStart(row)
 	end := t.LineEnd(row)
 	if start >= end {
@@ -137,7 +160,7 @@ func (t *Table) Line(row int) string {
 }
 
 // LineRunes returns the runes of line row (no trailing newline).
-func (t *Table) LineRunes(row int) []rune {
+func (t *table) LineRunes(row int) []rune {
 	start := t.LineStart(row)
 	end := t.LineEnd(row)
 	if start >= end {
@@ -147,12 +170,12 @@ func (t *Table) LineRunes(row int) []rune {
 }
 
 // PosToOffset converts (row, col) to a document rune offset.
-func (t *Table) PosToOffset(row, col int) int {
+func (t *table) PosToOffset(row, col int) int {
 	return t.LineStart(row) + col
 }
 
 // OffsetToPos converts a document offset to (row, col).
-func (t *Table) OffsetToPos(offset int) (row, col int) {
+func (t *table) OffsetToPos(offset int) (row, col int) {
 	t.rebuildLines()
 	// Binary search for the line.
 	lo, hi := 0, len(t.lineStarts)-1
@@ -168,7 +191,7 @@ func (t *Table) OffsetToPos(offset int) (row, col int) {
 }
 
 // Slice returns a copy of document runes [start, end).
-func (t *Table) Slice(start, end int) []rune {
+func (t *table) Slice(start, end int) []rune {
 	if start >= end {
 		return nil
 	}
@@ -199,12 +222,12 @@ func (t *Table) Slice(start, end int) []rune {
 }
 
 // String returns the full document as a string.
-func (t *Table) String() string {
+func (t *table) String() string {
 	return string(t.Slice(0, t.Len()))
 }
 
 // Insert inserts text at document rune offset pos.
-func (t *Table) Insert(pos int, text []rune) {
+func (t *table) Insert(pos int, text []rune) {
 	if len(text) == 0 {
 		return
 	}
@@ -220,7 +243,7 @@ func (t *Table) Insert(pos int, text []rune) {
 		t.pieces = append(t.pieces, newPiece)
 	case offset == 0:
 		// Insert before piece idx.
-		t.pieces = insert(t.pieces, idx, newPiece)
+		t.pieces = insertPiece(t.pieces, idx, newPiece)
 	default:
 		// Split piece idx at offset.
 		left, right := t.splitPiece(idx, offset)
@@ -230,7 +253,7 @@ func (t *Table) Insert(pos int, text []rune) {
 }
 
 // Delete removes document runes [start, end).
-func (t *Table) Delete(start, end int) {
+func (t *table) Delete(start, end int) {
 	if start >= end {
 		return
 	}
@@ -264,7 +287,7 @@ func (t *Table) Delete(start, end int) {
 
 // InsertLine inserts text as a new line after row (before newline of row).
 // The text should NOT include a trailing newline; one is added automatically.
-func (t *Table) InsertLine(row int, text string) {
+func (t *table) InsertLine(row int, text string) {
 	var pos int
 	switch {
 	case row < 0:
@@ -291,7 +314,7 @@ func (t *Table) InsertLine(row int, text string) {
 }
 
 // Lines returns all lines as a string slice (no trailing newlines).
-func (t *Table) Lines() []string {
+func (t *table) Lines() []string {
 	full := t.String()
 	parts := strings.Split(full, "\n")
 	return parts
@@ -300,7 +323,7 @@ func (t *Table) Lines() []string {
 // --- internal helpers ---
 
 // buf returns the backing rune slice for piece p.
-func (t *Table) buf(p Piece) []rune {
+func (t *table) buf(p Piece) []rune {
 	if p.Which == bufOriginal {
 		return t.original
 	}
@@ -310,7 +333,7 @@ func (t *Table) buf(p Piece) []rune {
 // findPiece returns the piece index and offset within that piece that
 // corresponds to document rune position pos.
 // Returns (len(pieces), 0) if pos is at or past the end.
-func (t *Table) findPiece(pos int) (idx, offset int) {
+func (t *table) findPiece(pos int) (idx, offset int) {
 	cur := 0
 	for i, p := range t.pieces {
 		if cur+p.Length > pos {
@@ -322,7 +345,7 @@ func (t *Table) findPiece(pos int) (idx, offset int) {
 }
 
 // splitPiece splits pieces[idx] at offset, returning the two halves.
-func (t *Table) splitPiece(idx, offset int) (left, right Piece) {
+func (t *table) splitPiece(idx, offset int) (left, right Piece) {
 	p := t.pieces[idx]
 	left = Piece{p.Which, p.Start, offset}
 	right = Piece{p.Which, p.Start + offset, p.Length - offset}
@@ -330,7 +353,7 @@ func (t *Table) splitPiece(idx, offset int) (left, right Piece) {
 }
 
 // rebuildLines scans the pieces and rebuilds lineStarts.
-func (t *Table) rebuildLines() {
+func (t *table) rebuildLines() {
 	if !t.lineDirty {
 		return
 	}
@@ -354,7 +377,7 @@ func (t *Table) rebuildLines() {
 
 // --- slice helpers ---
 
-func insert(s []Piece, i int, p Piece) []Piece {
+func insertPiece(s []Piece, i int, p Piece) []Piece {
 	s = append(s, Piece{})
 	copy(s[i+1:], s[i:])
 	s[i] = p

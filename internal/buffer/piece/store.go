@@ -19,8 +19,17 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// UndoStore is the interface for a persistent undo/redo log.
+type UndoStore interface {
+	Push(snap Snapshot) error
+	Undo() (Snapshot, bool)
+	Redo() (Snapshot, bool)
+	Current() Snapshot
+	Close() error
+}
 
 // PgStore is a Postgres-backed undo/redo log for a single file.
 type PgStore struct {
@@ -43,19 +52,27 @@ type pgEntry struct {
 //
 // dsn format: "host=localhost user=postgres dbname=editor sslmode=disable".
 func OpenPgStore(dsn, filePath string, initial Snapshot) (*PgStore, error) {
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgstore: open: %w", err)
 	}
+
+	// closeDB is called on every error path to prevent goroutine leaks from
+	// the sql.DB connection pool background goroutine.
+	closeDB := func() { _ = db.Close() }
+
 	if err := db.PingContext(context.Background()); err != nil {
+		closeDB()
 		return nil, fmt.Errorf("pgstore: ping: %w", err)
 	}
 	if err := migrate(db); err != nil {
+		closeDB()
 		return nil, fmt.Errorf("pgstore: migrate: %w", err)
 	}
 
 	fileID, err := upsertFile(db, filePath)
 	if err != nil {
+		closeDB()
 		return nil, fmt.Errorf("pgstore: upsert file: %w", err)
 	}
 
@@ -63,12 +80,14 @@ func OpenPgStore(dsn, filePath string, initial Snapshot) (*PgStore, error) {
 
 	// Load existing history from the DB.
 	if err := s.load(); err != nil {
+		closeDB()
 		return nil, fmt.Errorf("pgstore: load: %w", err)
 	}
 
 	// If no history yet, record the initial state.
 	if len(s.entries) == 0 {
 		if err := s.push(initial); err != nil {
+			closeDB()
 			return nil, err
 		}
 		s.stackTop = 0
@@ -193,8 +212,10 @@ func (s *PgStore) deleteEntries(ids []int64) error {
 // --- serialisation ---
 
 type snapshotJSON struct {
-	Pieces []Piece `json:"pieces"`
-	AddLen int     `json:"add_len"`
+	Pieces    []Piece `json:"pieces"`
+	AddLen    int     `json:"add_len"`
+	CursorRow int     `json:"cursor_row,omitempty"`
+	CursorCol int     `json:"cursor_col,omitempty"`
 }
 
 func marshalSnapshot(s Snapshot) ([]byte, error) {

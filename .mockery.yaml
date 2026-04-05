@@ -1,5 +1,18 @@
 with-expecter: true
-mockname: "Mock{{.InterfaceName}}"
-outpkg: "mocks"
-dir: "{{.InterfaceDir}}/mocks"
-filename: "mock_{{.InterfaceName | snakecase}}.go"
+packages:
+  github.com/anthonybrice/editor/internal/buffer/gap:
+    interfaces:
+      Buffer:
+  github.com/anthonybrice/editor/internal/buffer/piece:
+    interfaces:
+      Table:
+      UndoStore:
+  github.com/anthonybrice/editor/internal/buffer:
+    interfaces:
+      Buffer:
+  github.com/anthonybrice/editor/internal/editor:
+    interfaces:
+      Editor:
+  github.com/anthonybrice/editor/internal/lsp:
+    interfaces:
+      Session:

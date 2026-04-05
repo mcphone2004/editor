@@ -1,6 +1,7 @@
 package editor_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/anthonybrice/editor/internal/buffer"
@@ -14,7 +15,7 @@ func TestMain(m *testing.M) {
 
 // --- helpers ---
 
-func newEditor(t *testing.T, content string) *editor.Editor {
+func newEditor(t *testing.T, content string) editor.Editor {
 	t.Helper()
 	buf := buffer.New()
 	if content != "" {
@@ -23,13 +24,13 @@ func newEditor(t *testing.T, content string) *editor.Editor {
 	return editor.New(buf)
 }
 
-func typeKeys(e *editor.Editor, keys ...string) {
+func typeKeys(e editor.Editor, keys ...string) {
 	for _, k := range keys {
 		e.HandleKey(k)
 	}
 }
 
-func line(e *editor.Editor, row int) string {
+func line(e editor.Editor, row int) string {
 	return e.Buf().Line(row)
 }
 
@@ -343,7 +344,7 @@ func TestVisual_d_deletesSelection(t *testing.T) {
 
 func TestCommand_w_setsWrittenStatus(t *testing.T) {
 	buf := buffer.New()
-	buf.Path = "/tmp/editor_test_cmd.txt"
+	buf.SetPath("/tmp/editor_test_cmd.txt")
 	e := editor.New(buf)
 	typeKeys(e, ":", "w", "<Enter>")
 	if e.StatusMsg() == "" {
@@ -406,5 +407,83 @@ func TestDiagnostics_empty(t *testing.T) {
 	e := newEditor(t, "")
 	if len(e.GetDiagnostics()) != 0 {
 		t.Fatal("expected no diagnostics initially")
+	}
+}
+
+// --- Undo / Redo (requires Postgres) ---
+
+const editorTestDSN = "host=localhost user=postgres dbname=editor sslmode=disable"
+
+func newEditorWithUndo(t *testing.T, content string) editor.Editor {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "editor_undo_test_*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	buf, err := buffer.OpenWithUndo(f.Name(), editorTestDSN)
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping undo test", err)
+	}
+	t.Cleanup(buf.Close)
+	if !buf.HasUndoStore() {
+		t.Skip("postgres unavailable — skipping undo test")
+	}
+	return editor.New(buf)
+}
+
+func TestUndo_dd_restoresCursorAndText(t *testing.T) {
+	e := newEditorWithUndo(t, "foo\nbar\nbaz")
+
+	// dd deletes the first line; cursor should be at (0,0) after.
+	typeKeys(e, "d", "d")
+	if line(e, 0) != "bar" {
+		t.Fatalf("after dd: line 0 = %q, want %q", line(e, 0), "bar")
+	}
+
+	// u should restore the deleted line and cursor to (0,0).
+	typeKeys(e, "u")
+	if e.Buf().LineCount() != 3 {
+		t.Fatalf("after undo: %d lines, want 3", e.Buf().LineCount())
+	}
+	if line(e, 0) != "foo" {
+		t.Fatalf("after undo: line 0 = %q, want %q", line(e, 0), "foo")
+	}
+	if e.Cursor().Row != 0 || e.Cursor().Col != 0 {
+		t.Errorf("cursor after undo = (%d,%d), want (0,0)",
+			e.Cursor().Row, e.Cursor().Col)
+	}
+}
+
+func TestRedo_restoredByCtrlR(t *testing.T) {
+	e := newEditorWithUndo(t, "hello\nworld")
+
+	// Delete line 0, then undo, then redo.
+	typeKeys(e, "d", "d")
+	typeKeys(e, "u")
+	typeKeys(e, "<C-r>")
+
+	if e.Buf().LineCount() != 1 {
+		t.Fatalf("after redo: %d lines, want 1", e.Buf().LineCount())
+	}
+	if line(e, 0) != "world" {
+		t.Fatalf("after redo: line 0 = %q, want %q", line(e, 0), "world")
+	}
+}
+
+func TestUndo_atOldest_showsMessage(t *testing.T) {
+	e := newEditorWithUndo(t, "hi")
+
+	// Exhaust undo history.
+	for i := 0; i < 5; i++ {
+		typeKeys(e, "u")
+	}
+	if e.StatusMsg() != "already at oldest change" {
+		t.Errorf("status = %q, want \"already at oldest change\"", e.StatusMsg())
 	}
 }
