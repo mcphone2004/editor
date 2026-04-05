@@ -3,8 +3,8 @@ package memstore_test
 import (
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/buffer/piece"
-	"github.com/anthonybrice/editor/internal/buffer/piece/memstore"
+	"github.com/anthonybrice/editor/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece/memstore"
 	"go.uber.org/goleak"
 )
 

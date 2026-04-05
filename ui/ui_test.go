@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthonybrice/editor/internal/telemetry"
-	"github.com/anthonybrice/editor/internal/ui"
+	"github.com/anthonybrice/editor/telemetry"
+	"github.com/anthonybrice/editor/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	"go.uber.org/goleak"
 )

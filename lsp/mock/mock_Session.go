@@ -7,7 +7,7 @@ package mock
 import (
 	"context"
 
-	"github.com/anthonybrice/editor/internal/lsp"
+	"github.com/anthonybrice/editor/lsp"
 	mock "github.com/stretchr/testify/mock"
 )
 

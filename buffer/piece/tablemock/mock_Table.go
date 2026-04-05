@@ -5,7 +5,7 @@
 package tablemock
 
 import (
-	"github.com/anthonybrice/editor/internal/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece"
 	mock "github.com/stretchr/testify/mock"
 )
 

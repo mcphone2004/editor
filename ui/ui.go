@@ -13,10 +13,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/anthonybrice/editor/internal/buffer"
-	"github.com/anthonybrice/editor/internal/editor"
-	"github.com/anthonybrice/editor/internal/lsp"
-	"github.com/anthonybrice/editor/internal/telemetry"
+	"github.com/anthonybrice/editor/buffer"
+	"github.com/anthonybrice/editor/editor"
+	"github.com/anthonybrice/editor/lsp"
+	"github.com/anthonybrice/editor/telemetry"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

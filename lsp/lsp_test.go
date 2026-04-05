@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthonybrice/editor/internal/lsp"
+	"github.com/anthonybrice/editor/lsp"
 	"go.uber.org/goleak"
 )
 

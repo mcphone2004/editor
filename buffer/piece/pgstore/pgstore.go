@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anthonybrice/editor/internal/buffer/piece"
+	"github.com/anthonybrice/editor/buffer/piece"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
