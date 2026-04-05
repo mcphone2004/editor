@@ -66,9 +66,10 @@ type Notification struct {
 }
 
 // Start launches the language server at command+args and returns a Client.
-// ctx is used to kill the subprocess if cancelled (e.g. on timeout).
+// ctx is used for values only; cancellation is stripped so the subprocess
+// lifetime is not tied to the caller's timeout.
 func Start(ctx context.Context, command string, args ...string) (*Client, error) {
-	cmd := exec.CommandContext(ctx, command, args...) //nolint:gosec // intentional subprocess launch for LSP
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), command, args...) //nolint:gosec // intentional subprocess launch for LSP
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
