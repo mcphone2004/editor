@@ -55,7 +55,7 @@ EDITOR_TELEMETRY=off ./bin/editor myfile.go
 | `editor/mock` | `mock_Editor.go` | Mock for `editor.Editor` |
 | `lsp` | `client.go`, `gopls.go` | JSON-RPC 2.0 LSP client + gopls session |
 | `lsp/mock` | `mock_Session.go` | Mock for `lsp.Session` |
-| `ui` | `ui.go` | bubbletea Model — owns Editor, Buffer, lsp.Session |
+| `ui` | `ui.go`, `window.go` | bubbletea Model — layout tree of `winPane`s; `window.go` owns pane rendering |
 | `telemetry` | `telemetry.go` | JSONL event log at `~/.cache/editor/telemetry.jsonl` |
 
 ---
