@@ -43,6 +43,7 @@ EDITOR_TELEMETRY=off ./bin/editor myfile.go
 | `buffer` | `buffer.go` | `Buffer` facade — unified API over gap + piece table |
 | `buffer/gap` | `gap.go` | Gap buffer for O(1) insert-mode editing |
 | `buffer/gap/mock` | `mock_Buffer.go` | Mock for `gap.Buffer` |
+| `buffer/fake` | `fake.go` | In-memory `buffer.Buffer` test double ([]string backing, undo/redo stack) |
 | `buffer/mock` | `mock_Buffer.go` | Mock for `buffer.Buffer` |
 | `buffer/piece` | `table.go`, `store.go` | Piece table (canonical document) + undo store interface |
 | `buffer/piece/memstore` | `memstore.go` | In-memory undo store (fallback / tests) |
