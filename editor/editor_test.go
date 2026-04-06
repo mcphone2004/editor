@@ -354,6 +354,62 @@ func TestCommand_unknown_setsError(t *testing.T) {
 	}
 }
 
+func TestCommand_split_emitsSentinel(t *testing.T) {
+	for _, cmd := range []string{"sp", "split"} {
+		t.Run(cmd, func(t *testing.T) {
+			e := newEditor(t, "")
+			typeKeys(e, ":")
+			for _, ch := range cmd {
+				typeKeys(e, string(ch))
+			}
+			typeKeys(e, "<Enter>")
+			if e.StatusMsg() != "split:" {
+				t.Fatalf(":"+cmd+": StatusMsg = %q, want %q", e.StatusMsg(), "split:")
+			}
+		})
+	}
+}
+
+func TestCommand_split_withPath(t *testing.T) {
+	e := newEditor(t, "")
+	typeKeys(e, ":", "s", "p", " ", "f", "o", "o", ".", "g", "o", "<Enter>")
+	if e.StatusMsg() != "split:foo.go" {
+		t.Fatalf("StatusMsg = %q, want %q", e.StatusMsg(), "split:foo.go")
+	}
+}
+
+func TestCommand_vsplit_emitsSentinel(t *testing.T) {
+	for _, cmd := range []string{"vs", "vsp", "vsplit"} {
+		t.Run(cmd, func(t *testing.T) {
+			e := newEditor(t, "")
+			typeKeys(e, ":")
+			for _, ch := range cmd {
+				typeKeys(e, string(ch))
+			}
+			typeKeys(e, "<Enter>")
+			if e.StatusMsg() != "vsplit:" {
+				t.Fatalf(":"+cmd+": StatusMsg = %q, want %q", e.StatusMsg(), "vsplit:")
+			}
+		})
+	}
+}
+
+func TestCommand_vsplit_withPath(t *testing.T) {
+	e := newEditor(t, "")
+	typeKeys(e, ":", "v", "s", " ", "b", "a", "r", ".", "g", "o", "<Enter>")
+	if e.StatusMsg() != "vsplit:bar.go" {
+		t.Fatalf("StatusMsg = %q, want %q", e.StatusMsg(), "vsplit:bar.go")
+	}
+}
+
+func TestCommand_only_emitsSentinel(t *testing.T) {
+	e := newEditor(t, "")
+	typeKeys(e, ":", "o", "n", "l", "y", "<Enter>")
+	if e.StatusMsg() != "only" {
+		t.Fatalf("StatusMsg = %q, want %q", e.StatusMsg(), "only")
+	}
+}
+
 func TestCommand_esc_cancels(t *testing.T) {
 	e := newEditor(t, "")
 	typeKeys(e, ":", "<Esc>")

@@ -55,7 +55,7 @@ EDITOR_TELEMETRY=off ./bin/editor myfile.go
 | `editor/mock` | `mock_Editor.go` | Mock for `editor.Editor` |
 | `lsp` | `client.go`, `gopls.go` | JSON-RPC 2.0 LSP client + gopls session |
 | `lsp/mock` | `mock_Session.go` | Mock for `lsp.Session` |
-| `ui` | `ui.go` | bubbletea Model — owns Editor, Buffer, lsp.Session |
+| `ui` | `ui.go`, `window.go` | bubbletea Model — layout tree of `winPane`s; `window.go` owns pane rendering |
 | `telemetry` | `telemetry.go` | JSONL event log at `~/.cache/editor/telemetry.jsonl` |
 
 ---
@@ -91,8 +91,11 @@ The editor engine communicates async actions to the UI via `statusMsg` sentinel 
 | `"lsp:gd"` | trigger go-to-definition |
 | `"lsp:hover"` | trigger hover info |
 | `"lsp:complete"` | trigger completion |
-| `"quit"` | exit the program |
+| `"quit"` | exit the program (or close pane if multiple panes open) |
 | `"open:<path>"` | open a new file |
+| `"split:<path>"` | horizontal split (`:sp`/`:split`); path optional |
+| `"vsplit:<path>"` | vertical split (`:vs`/`:vsp`/`:vsplit`); path optional |
+| `"only"` | close all panes except focused (`:only`) |
 
 ---
 
