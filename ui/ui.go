@@ -589,6 +589,7 @@ func (m *Model) focusPane(p layout.Pane) {
 
 // doSplit splits the focused pane in direction dir.  If path is non-empty the
 // new pane opens that file; otherwise it mirrors the focused pane's buffer.
+// Like vim's 'equalalways', all sibling panes are equalized after each split.
 func (m *Model) doSplit(dir layout.Dir, path string) {
 	var buf buffer.Buffer
 	var err error
@@ -603,6 +604,7 @@ func (m *Model) doSplit(dir layout.Dir, path string) {
 	}
 	newP := &winPane{ed: editor.New(buf)}
 	m.root = layout.Split(m.root, m.focused, dir, newP)
+	layout.EqualizeRatios(m.root)
 	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
 	m.focused = newP
 }

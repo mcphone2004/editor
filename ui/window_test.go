@@ -199,6 +199,28 @@ func TestDoClosePane_removesPane(t *testing.T) {
 	require.Equal(t, original, m.focused)
 }
 
+func TestDoSplit_Vertical_threeTimesEqualizesWidths(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Vertical, "")
+	m.doSplit(layout.Vertical, "")
+	m.doSplit(layout.Vertical, "")
+
+	leaves := layout.AllLeaves(m.root)
+	require.Len(t, leaves, 4)
+
+	// All four panes should have equal (or off-by-one) widths.
+	_, _, w0, _ := leaves[0].(*winPane).Bounds()
+	_, _, w1, _ := leaves[1].(*winPane).Bounds()
+	_, _, w2, _ := leaves[2].(*winPane).Bounds()
+	_, _, w3, _ := leaves[3].(*winPane).Bounds()
+	for _, w := range []int{w1, w2, w3} {
+		diff := w0 - w
+		if diff < -1 || diff > 1 {
+			t.Fatalf("pane widths not equal after 3 splits: %d %d %d %d", w0, w1, w2, w3)
+		}
+	}
+}
+
 func TestDoClosePane_noopOnLastPane(t *testing.T) {
 	m := newTestModel(t)
 	// With only one pane, doClosePane should be a no-op (the caller checks
