@@ -842,6 +842,19 @@ func (e *editorState) execCommand() {
 		}
 	case strings.HasPrefix(cmd, "set "):
 		e.statusMsg = "set:" + cmd[4:]
+	// Split commands: emit a sentinel that the UI layer handles.
+	case cmd == "sp" || cmd == "split":
+		e.statusMsg = "split:"
+	case cmd == "vs" || cmd == "vsp" || cmd == "vsplit":
+		e.statusMsg = "vsplit:"
+	case strings.HasPrefix(cmd, "sp ") || strings.HasPrefix(cmd, "split "):
+		arg := strings.TrimSpace(cmd[strings.Index(cmd, " ")+1:])
+		e.statusMsg = "split:" + arg
+	case strings.HasPrefix(cmd, "vs ") || strings.HasPrefix(cmd, "vsp ") || strings.HasPrefix(cmd, "vsplit "):
+		arg := strings.TrimSpace(cmd[strings.Index(cmd, " ")+1:])
+		e.statusMsg = "vsplit:" + arg
+	case cmd == "only":
+		e.statusMsg = "only"
 	default:
 		e.statusMsg = fmt.Sprintf("unknown command: %s", cmd)
 	}
