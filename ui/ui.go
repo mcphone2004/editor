@@ -11,10 +11,10 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/anthonybrice/editor/buffer"
 	"github.com/anthonybrice/editor/editor"
+	"github.com/anthonybrice/editor/layout"
 	"github.com/anthonybrice/editor/lsp"
 	"github.com/anthonybrice/editor/telemetry"
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,6 +84,11 @@ var (
 
 	styleStatusLSPOff = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("240"))
+
+	styleStatusInactive = lipgloss.NewStyle().
+				Background(lipgloss.Color("240")).
+				Foreground(lipgloss.Color("252")).
+				Padding(0, 1)
 )
 
 // --- Message types for async operations ---
@@ -104,24 +109,12 @@ type msgQuit struct{}
 
 // Model is the top-level bubbletea model.
 type Model struct {
-	ed     editor.Editor
-	buf    buffer.Buffer
-	lsp    lsp.Session // may be nil
-	tel    telemetry.Telemetry
-	width  int
-	height int
-	scroll int // first visible line
-
-	// Completion popup state.
-	completions []lsp.CompletionItem
-	compIdx     int
-	compVisible bool
-
-	// Hover popup.
-	hoverText string
-
-	// Go vet diagnostics merged with LSP diagnostics.
-	vetDiags []editor.Diagnostic
+	root    *layout.Node
+	focused *winPane
+	lsp     lsp.Session // may be nil
+	tel     telemetry.Telemetry
+	width   int
+	height  int
 }
 
 // New creates a Model. Opens the file at path (empty = new buffer).
@@ -142,8 +135,9 @@ func New(path string, lspSession lsp.Session, tel telemetry.Telemetry) (*Model, 
 	if tel == nil {
 		tel = telemetry.Noop()
 	}
-	ed := editor.New(buf)
-	return &Model{ed: ed, buf: buf, lsp: lspSession, tel: tel}, nil
+	p := &winPane{ed: editor.New(buf)}
+	root := layout.NewLeaf(p)
+	return &Model{root: root, focused: p, lsp: lspSession, tel: tel}, nil
 }
 
 // Init implements tea.Model.
@@ -151,7 +145,7 @@ func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.lsp != nil {
 		cmds = append(cmds, m.listenLSPExit())
-		if m.buf.Path() != "" {
+		if m.focused.ed.Buf().Path() != "" {
 			cmds = append(cmds, m.openDoc(), m.listenNotifications())
 		}
 	}
@@ -164,6 +158,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -175,15 +170,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mergeDiagnostics(msg.path, msg.diags)
 
 	case msgHover:
-		m.hoverText = msg.text
+		m.focused.hoverText = msg.text
 
 	case msgCompletion:
-		m.completions = msg.items
-		m.compIdx = 0
-		m.compVisible = len(msg.items) > 0
+		m.focused.completions = msg.items
+		m.focused.compIdx = 0
+		m.focused.compVisible = len(msg.items) > 0
 
 	case msgVetDiags:
-		m.vetDiags = msg.diags
+		m.focused.vetDiags = msg.diags
 		m.mergeDiagnostics("", nil) // re-merge
 
 	case msgQuit:
@@ -195,46 +190,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := keyString(msg)
-	prevMode := m.ed.Mode()
+	p := m.focused
+	prevMode := p.ed.Mode()
 
 	// Completion navigation while popup is visible.
-	if m.compVisible {
+	if p.compVisible {
 		switch key {
 		case "<C-n>", "<Tab>":
-			m.compIdx = (m.compIdx + 1) % len(m.completions)
+			p.compIdx = (p.compIdx + 1) % len(p.completions)
 			return m, nil
 		case "<C-p>":
-			m.compIdx = (m.compIdx - 1 + len(m.completions)) % len(m.completions)
+			p.compIdx = (p.compIdx - 1 + len(p.completions)) % len(p.completions)
 			return m, nil
 		case "<Enter>":
 			m.applyCompletion()
 			return m, nil
 		case "<Esc>":
-			m.compVisible = false
+			p.compVisible = false
 			return m, nil
 		}
 	}
 
 	// Activate gap buffer when entering insert mode.
 	if prevMode == editor.ModeNormal && key == "i" || key == "a" || key == "o" || key == "O" {
-		cur := m.ed.Cursor()
-		m.buf.SetCursorHint(cur.Row, cur.Col)
-		m.buf.ActivateGap(cur.Row, cur.Col)
+		cur := p.ed.Cursor()
+		p.ed.Buf().SetCursorHint(cur.Row, cur.Col)
+		p.ed.Buf().ActivateGap(cur.Row, cur.Col)
 	}
 
-	m.ed.HandleKey(key)
+	p.ed.HandleKey(key)
 
 	// Clear hover when cursor moves.
-	m.hoverText = ""
+	p.hoverText = ""
 
 	var cmds []tea.Cmd
 
 	// Handle signals encoded in StatusMsg.
-	status := m.ed.StatusMsg()
+	status := p.ed.StatusMsg()
 	switch {
 	case status == "quit" || status == "quit!":
-		if status == "quit!" || !m.buf.Modified() {
-			return m, tea.Quit
+		if status == "quit!" || !p.ed.Buf().Modified() {
+			if len(layout.AllLeaves(m.root)) > 1 {
+				m.doClosePane()
+			} else {
+				return m, tea.Quit
+			}
 		}
 	case strings.HasPrefix(status, "open:"):
 		path := strings.TrimPrefix(status, "open:")
@@ -245,28 +245,36 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.hover())
 	case status == "lsp:complete":
 		cmds = append(cmds, m.complete())
+	case strings.HasPrefix(status, "split:"):
+		path := strings.TrimPrefix(status, "split:")
+		m.doSplit(layout.Horizontal, path)
+	case strings.HasPrefix(status, "vsplit:"):
+		path := strings.TrimPrefix(status, "vsplit:")
+		m.doSplit(layout.Vertical, path)
+	case status == "only":
+		m.doOnly()
 	}
 
 	// Flush gap buffer when leaving insert mode.
-	if prevMode == editor.ModeInsert && m.ed.Mode() != editor.ModeInsert {
-		cur := m.ed.Cursor()
-		m.buf.SetCursorHint(cur.Row, cur.Col)
-		m.buf.FlushGap()
-		m.compVisible = false
+	if prevMode == editor.ModeInsert && p.ed.Mode() != editor.ModeInsert {
+		cur := p.ed.Cursor()
+		p.ed.Buf().SetCursorHint(cur.Row, cur.Col)
+		p.ed.Buf().FlushGap()
+		p.compVisible = false
 		// Notify LSP of the change and run go vet.
-		if m.lsp != nil && m.buf.Path() != "" {
+		if m.lsp != nil && p.ed.Buf().Path() != "" {
 			cmds = append(cmds, m.didChange(), m.runVet())
 		}
 	}
 
 	// Save: run vet + notify LSP.
 	if strings.HasPrefix(status, "written:") {
-		if m.lsp != nil && m.buf.Path() != "" {
+		if m.lsp != nil && p.ed.Buf().Path() != "" {
 			cmds = append(cmds, m.didSave(), m.runVet())
 		}
 	}
 
-	m.scrollToCursor()
+	p.scrollToCursor()
 	return m, tea.Batch(cmds...)
 }
 
@@ -275,150 +283,54 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	visRows := m.visibleRows()
+	p := m.focused
 	var sb strings.Builder
 
-	diagMap := m.diagByRow()
-	cur := m.ed.Cursor()
-	visStart, visEnd := m.ed.VisualRange()
-	isVisual := m.ed.Mode() == editor.ModeVisual || m.ed.Mode() == editor.ModeVisualLine
+	// Render the layout tree (all pane content + per-pane status bars).
+	sb.WriteString(renderNode(m.root, p, m.lsp))
 
-	for i := 0; i < visRows; i++ {
-		row := m.scroll + i
-
-		// Line number gutter.
-		sb.WriteString(styleLineNum.Render(fmt.Sprintf("%d", row+1)))
-		sb.WriteString(" ")
-
-		// Diagnostic gutter icon.
-		if d, ok := diagMap[row]; ok {
-			if d.Severity == lsp.SeverityError {
-				sb.WriteString(styleError.Render("E"))
-			} else {
-				sb.WriteString(styleWarning.Render("W"))
-			}
-		} else {
-			sb.WriteString(" ")
-		}
-		sb.WriteString(" ")
-
-		if row < m.buf.LineCount() {
-			line := []rune(m.buf.Line(row))
-			for col, r := range line {
-				// Expand tabs to 4 spaces so visual width is stable regardless
-				// of cursor position (a terminal-rendered \t under a styled
-				// cursor collapses to 1 column instead of expanding to the tab
-				// stop, causing the rest of the line to shift).
-				var ch string
-				switch {
-				case r == '\t':
-					ch = "    "
-				case utf8.RuneLen(r) == 0:
-					ch = " "
-				default:
-					ch = string(r)
-				}
-
-				inVisual := isVisual && inVisualRange(row, col, visStart, visEnd, m.ed.Mode() == editor.ModeVisualLine)
-				isCursor := row == cur.Row && col == cur.Col
-
-				switch {
-				case isCursor:
-					sb.WriteString(styleCursor.Render(ch))
-				case inVisual:
-					sb.WriteString(styleVisualHL.Render(ch))
-				default:
-					sb.WriteString(ch)
-				}
-			}
-			// Cursor past end of line.
-			if row == cur.Row && cur.Col >= len(line) {
-				sb.WriteString(styleCursor.Render(" "))
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Status bar.
-	sb.WriteString(m.renderStatus())
-
-	// Command line / message line.
+	// Shared command line / message line.
 	sb.WriteString("\n")
-	switch m.ed.Mode() {
+	switch p.ed.Mode() {
 	case editor.ModeCommand:
-		sb.WriteString(string(m.ed.CmdMode()) + m.ed.CmdBuf())
+		sb.WriteString(string(p.ed.CmdMode()) + p.ed.CmdBuf())
 	case editor.ModeNormal, editor.ModeInsert, editor.ModeVisual, editor.ModeVisualLine:
-		if m.ed.StatusMsg() != "" &&
-			m.ed.StatusMsg() != "quit" &&
-			m.ed.StatusMsg() != "quit!" &&
-			!strings.HasPrefix(m.ed.StatusMsg(), "lsp:") &&
-			!strings.HasPrefix(m.ed.StatusMsg(), "open:") {
-			sb.WriteString(m.ed.StatusMsg())
+		msg := p.ed.StatusMsg()
+		if msg != "" &&
+			msg != "quit" &&
+			msg != "quit!" &&
+			!strings.HasPrefix(msg, "lsp:") &&
+			!strings.HasPrefix(msg, "open:") {
+			sb.WriteString(msg)
 		}
 	}
 
-	// Hover popup (shown above status bar if non-empty).
-	if m.hoverText != "" {
-		sb.WriteString("\n" + m.hoverText)
+	// Hover popup.
+	if p.hoverText != "" {
+		sb.WriteString("\n" + p.hoverText)
 	}
 
-	// Completion popup — render inline at cursor position.
-	if m.compVisible && len(m.completions) > 0 {
+	// Completion popup.
+	if p.compVisible && len(p.completions) > 0 {
 		sb.WriteString(m.renderCompletion())
 	}
 
 	return sb.String()
 }
 
-func (m *Model) renderStatus() string {
-	cur := m.ed.Cursor()
-	modeStr := m.ed.Mode().String()
-
-	var modeStyle lipgloss.Style
-	switch m.ed.Mode() {
-	case editor.ModeNormal:
-		modeStyle = styleStatusNormal
-	case editor.ModeInsert:
-		modeStyle = styleStatusInsert
-	case editor.ModeVisual, editor.ModeVisualLine:
-		modeStyle = styleStatusVisual
-	case editor.ModeCommand:
-		modeStyle = styleStatusCommand
-	}
-
-	left := modeStyle.Render(modeStr) + " " + m.buf.Path()
-	if m.buf.Path() == "" {
-		left += "[New File]"
-	}
-	if m.buf.Modified() {
-		left += " [+]"
-	}
-	var lspIndicator string
-	if m.lsp != nil {
-		lspIndicator = styleStatusLSPOn.Render("LSP")
-	} else {
-		lspIndicator = styleStatusLSPOff.Render("no LSP")
-	}
-	right := lspIndicator + "  " + fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
-	pad := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
-	if pad < 0 {
-		pad = 0
-	}
-	return left + strings.Repeat(" ", pad) + right
-}
-
 func (m *Model) renderCompletion() string {
+	p := m.focused
 	var sb strings.Builder
 	maxItems := 8
-	if len(m.completions) < maxItems {
-		maxItems = len(m.completions)
+	if len(p.completions) < maxItems {
+		maxItems = len(p.completions)
 	}
 	for i := 0; i < maxItems; i++ {
-		label := m.completions[i].Label
+		label := p.completions[i].Label
 		if len(label) > 30 {
 			label = label[:30]
 		}
-		if i == m.compIdx {
+		if i == p.compIdx {
 			sb.WriteString("\n" + styleCompletionSel.Render(label))
 		} else {
 			sb.WriteString("\n" + styleCompletionItem.Render(label))
@@ -438,30 +350,33 @@ func (m *Model) listenLSPExit() tea.Cmd {
 }
 
 func (m *Model) openDoc() tea.Cmd {
+	buf := m.focused.ed.Buf()
 	return func() tea.Msg {
-		_ = m.lsp.DidOpen(context.Background(), m.buf.Path(), m.buf.String())
+		_ = m.lsp.DidOpen(context.Background(), buf.Path(), buf.String())
 		return nil
 	}
 }
 
 func (m *Model) didChange() tea.Cmd {
-	text := m.buf.String()
+	buf := m.focused.ed.Buf()
+	text := buf.String()
 	return func() tea.Msg {
-		_ = m.lsp.DidChange(context.Background(), m.buf.Path(), text)
+		_ = m.lsp.DidChange(context.Background(), buf.Path(), text)
 		return nil
 	}
 }
 
 func (m *Model) didSave() tea.Cmd {
+	buf := m.focused.ed.Buf()
 	return func() tea.Msg {
-		_ = m.lsp.DidSave(context.Background(), m.buf.Path())
+		_ = m.lsp.DidSave(context.Background(), buf.Path())
 		return nil
 	}
 }
 
 func (m *Model) gotoDefinition() tea.Cmd {
-	cur := m.ed.Cursor()
-	path := m.buf.Path()
+	cur := m.focused.ed.Cursor()
+	path := m.focused.ed.Buf().Path()
 	return func() tea.Msg {
 		locs, err := m.lsp.Definition(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(locs) == 0 {
@@ -480,8 +395,8 @@ func (m *Model) gotoDefinition() tea.Cmd {
 }
 
 func (m *Model) hover() tea.Cmd {
-	cur := m.ed.Cursor()
-	path := m.buf.Path()
+	cur := m.focused.ed.Cursor()
+	path := m.focused.ed.Buf().Path()
 	return func() tea.Msg {
 		text, err := m.lsp.Hover(context.Background(), path, cur.Row, cur.Col)
 		if err != nil {
@@ -492,8 +407,8 @@ func (m *Model) hover() tea.Cmd {
 }
 
 func (m *Model) complete() tea.Cmd {
-	cur := m.ed.Cursor()
-	path := m.buf.Path()
+	cur := m.focused.ed.Cursor()
+	path := m.focused.ed.Buf().Path()
 	return func() tea.Msg {
 		items, err := m.lsp.Completion(context.Background(), path, cur.Row, cur.Col)
 		if err != nil || len(items) == 0 {
@@ -533,7 +448,7 @@ func (m *Model) listenNotifications() tea.Cmd {
 // --- go vet ---
 
 func (m *Model) runVet() tea.Cmd {
-	path := m.buf.Path()
+	path := m.focused.ed.Buf().Path()
 	if path == "" {
 		return nil
 	}
@@ -592,15 +507,53 @@ func parseVetOutput(output, _ string) []editor.Diagnostic {
 
 // --- helpers ---
 
+// doSplit splits the focused pane in direction dir.  If path is non-empty the
+// new pane opens that file; otherwise it mirrors the focused pane's buffer.
+func (m *Model) doSplit(dir layout.Dir, path string) {
+	var buf buffer.Buffer
+	var err error
+	if path != "" {
+		buf, err = buffer.Open(path)
+		if err != nil {
+			m.focused.hoverText = fmt.Sprintf("split error: %v", err)
+			return
+		}
+	} else {
+		buf = m.focused.ed.Buf()
+	}
+	newP := &winPane{ed: editor.New(buf)}
+	m.root = layout.Split(m.root, m.focused, dir, newP)
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	m.focused = newP
+}
+
+// doOnly closes all panes except the focused one.
+func (m *Model) doOnly() {
+	m.root = layout.NewLeaf(m.focused)
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+}
+
+// doClosePane closes the focused pane and moves focus to the suggested neighbor.
+func (m *Model) doClosePane() {
+	newRoot, newFocus, last := layout.Close(m.root, m.focused)
+	if last || newRoot == nil {
+		return
+	}
+	m.root = newRoot
+	if p, ok := newFocus.(*winPane); ok {
+		m.focused = p
+	}
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+}
+
 func (m *Model) openFile(path string) tea.Cmd {
 	return func() tea.Msg {
 		buf, err := buffer.Open(path)
 		if err != nil {
 			return msgHover{text: fmt.Sprintf("open error: %v", err)}
 		}
-		m.buf = buf
-		m.ed = editor.New(buf)
-		m.scroll = 0
+		m.focused.ed = editor.New(buf)
+		m.focused.scroll = 0
 		if m.lsp != nil {
 			_ = m.lsp.DidOpen(context.Background(), path, buf.String())
 		}
@@ -609,60 +562,33 @@ func (m *Model) openFile(path string) tea.Cmd {
 }
 
 func (m *Model) applyCompletion() {
-	if !m.compVisible || m.compIdx >= len(m.completions) {
+	p := m.focused
+	if !p.compVisible || p.compIdx >= len(p.completions) {
 		return
 	}
-	item := m.completions[m.compIdx]
+	item := p.completions[p.compIdx]
 	text := item.InsertText
 	if text == "" {
 		text = item.Label
 	}
-	cur := m.ed.Cursor()
-	m.buf.InsertString(cur.Row, cur.Col, text)
-	m.compVisible = false
+	cur := p.ed.Cursor()
+	p.ed.Buf().InsertString(cur.Row, cur.Col, text)
+	p.compVisible = false
 }
 
 func (m *Model) mergeDiagnostics(path string, lspDiags []editor.Diagnostic) {
 	// Replace LSP diags for the given path and merge vet diags.
-	m.ed.SetDiagnostics(append(lspDiags, m.vetDiags...))
+	m.focused.ed.SetDiagnostics(append(lspDiags, m.focused.vetDiags...))
 	_ = path
 }
 
-func (m *Model) diagByRow() map[int]editor.Diagnostic {
-	out := make(map[int]editor.Diagnostic)
-	for _, d := range m.ed.GetDiagnostics() {
-		if existing, ok := out[d.Row]; !ok || d.Severity < existing.Severity {
-			out[d.Row] = d
-		}
-	}
-	return out
-}
-
-func (m *Model) scrollToCursor() {
-	cur := m.ed.Cursor()
-	rows := m.visibleRows()
-	if cur.Row < m.scroll {
-		m.scroll = cur.Row
-	} else if cur.Row >= m.scroll+rows {
-		m.scroll = cur.Row - rows + 1
-	}
-}
-
-func (m *Model) visibleRows() int {
-	rows := m.height - 2 // status bar + message line
-	if rows < 1 {
-		return 1
-	}
-	return rows
-}
-
 func (m Model) String() string {
-	return m.buf.String()
+	return m.focused.ed.Buf().String()
 }
 
 // LineCount returns the number of lines in the buffer.
 func (m *Model) LineCount() int {
-	return m.buf.LineCount()
+	return m.focused.ed.Buf().LineCount()
 }
 
 func inVisualRange(row, col int, start, end editor.Pos, linewise bool) bool {
