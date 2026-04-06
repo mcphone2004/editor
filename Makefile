@@ -1,18 +1,23 @@
 BINARY := bin/editor
 MODULE  := github.com/anthonybrice/editor
 
-.PHONY: all build test test-unit vet lint clean
+.PHONY: all build test test-unit test-e2e vet lint clean
 
 all: build
 
 build:
 	go build -o $(BINARY) .
 
-## test / test-unit — run all unit tests with race detector and verbose output
-test: test-unit
-
+## test-unit — unit tests only (no E2E); fast, no build tag required
 test-unit:
 	go test -race -v ./...
+
+## test-e2e — full UI stack tests; requires -tags e2e
+test-e2e:
+	go test -race -v -tags e2e ./ui/...
+
+## test — run all tests (unit + E2E)
+test: test-unit test-e2e
 
 vet:
 	go vet ./...

@@ -9,8 +9,10 @@ See **DESIGN.md** for full architectural rationale behind every layer.
 ## Common commands
 
 ```sh
-make build          # compile ./editor binary
-make test           # go test -race -v ./...
+make build          # compile bin/editor
+make test           # unit tests + E2E tests
+make test-unit      # unit tests only (no build tag required)
+make test-e2e       # E2E tests only (go test -tags e2e ./ui/...)
 make lint           # golangci-lint run ./...
 make vet            # go vet ./...
 ```
