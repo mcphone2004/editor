@@ -1,5 +1,9 @@
 version: "2"
 
+run:
+  build-tags:
+    - e2e
+
 linters:
   enable:
     # Bugs / correctness
@@ -104,7 +108,7 @@ linters:
           - cyclop
           - gochecknoglobals
 
-      - path: "internal/lsp/"
+      - path: "lsp/"
         linters:
           - gochecknoglobals
 
