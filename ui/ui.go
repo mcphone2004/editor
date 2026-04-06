@@ -109,12 +109,13 @@ type msgQuit struct{}
 
 // Model is the top-level bubbletea model.
 type Model struct {
-	root    *layout.Node
-	focused *winPane
-	lsp     lsp.Session // may be nil
-	tel     telemetry.Telemetry
-	width   int
-	height  int
+	root         *layout.Node
+	focused      *winPane
+	lsp          lsp.Session // may be nil
+	tel          telemetry.Telemetry
+	width        int
+	height       int
+	ctrlWPending bool // true after <C-w> is pressed, waiting for the second key
 }
 
 // New creates a Model. Opens the file at path (empty = new buffer).
@@ -190,6 +191,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := keyString(msg)
+
+	// Handle <C-w> two-key sequence.
+	if m.ctrlWPending {
+		m.ctrlWPending = false
+		m.handleCtrlW(key)
+		return m, nil
+	}
+	if key == "<C-w>" {
+		m.ctrlWPending = true
+		return m, nil
+	}
+
 	p := m.focused
 	prevMode := p.ed.Mode()
 
@@ -507,6 +520,69 @@ func parseVetOutput(output, _ string) []editor.Diagnostic {
 
 // --- helpers ---
 
+// handleCtrlW dispatches <C-w><key> window commands.
+func (m *Model) handleCtrlW(key string) {
+	const resizeDelta = 0.05
+	switch key {
+	case "w", "<C-w>":
+		m.focusPane(layout.CycleNext(m.root, m.focused))
+	case "W":
+		m.focusPane(layout.CyclePrev(m.root, m.focused))
+	case "h":
+		m.focusPane(layout.NeighborInDirection(m.root, m.focused, 'h'))
+	case "j":
+		m.focusPane(layout.NeighborInDirection(m.root, m.focused, 'j'))
+	case "k":
+		m.focusPane(layout.NeighborInDirection(m.root, m.focused, 'k'))
+	case "l":
+		m.focusPane(layout.NeighborInDirection(m.root, m.focused, 'l'))
+	case "H":
+		m.root = layout.MoveToEdge(m.root, m.focused, layout.Vertical, false)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "J":
+		m.root = layout.MoveToEdge(m.root, m.focused, layout.Horizontal, true)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "K":
+		m.root = layout.MoveToEdge(m.root, m.focused, layout.Horizontal, false)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "L":
+		m.root = layout.MoveToEdge(m.root, m.focused, layout.Vertical, true)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "+":
+		layout.AdjustHeight(m.root, m.focused, resizeDelta)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "-":
+		layout.AdjustHeight(m.root, m.focused, -resizeDelta)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case ">":
+		layout.AdjustWidth(m.root, m.focused, resizeDelta)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "<":
+		layout.AdjustWidth(m.root, m.focused, -resizeDelta)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "=":
+		layout.EqualizeRatios(m.root)
+		layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	case "s":
+		m.doSplit(layout.Horizontal, "")
+	case "v":
+		m.doSplit(layout.Vertical, "")
+	case "n":
+		m.doSplit(layout.Horizontal, "")
+	case "q":
+		m.doClosePane()
+	case "o":
+		m.doOnly()
+	}
+}
+
+// focusPane sets m.focused to p if p is a *winPane.
+func (m *Model) focusPane(p layout.Pane) {
+	if wp, ok := p.(*winPane); ok {
+		m.focused = wp
+	}
+}
+
 // doSplit splits the focused pane in direction dir.  If path is non-empty the
 // new pane opens that file; otherwise it mirrors the focused pane's buffer.
 func (m *Model) doSplit(dir layout.Dir, path string) {
@@ -658,6 +734,8 @@ func keyString(msg tea.KeyMsg) string {
 		return "<C-u>"
 	case tea.KeyCtrlB:
 		return "<C-b>"
+	case tea.KeyCtrlW:
+		return "<C-w>"
 	case tea.KeyF5:
 		return "<F5>"
 	default:

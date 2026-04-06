@@ -207,6 +207,97 @@ func TestDoClosePane_noopOnLastPane(t *testing.T) {
 	require.Len(t, layout.AllLeaves(m.root), 1)
 }
 
+// --- <C-w> bindings ---
+
+func TestCtrlW_w_cyclesNextPane(t *testing.T) {
+	m := newTestModel(t)
+	first := m.focused
+	m.doSplit(layout.Horizontal, "")
+	second := m.focused
+	require.NotEqual(t, first, second)
+
+	// From second pane, <C-w>w should cycle to first.
+	m.handleCtrlW("w")
+	require.Equal(t, first, m.focused)
+}
+
+func TestCtrlW_W_cyclesPrevPane(t *testing.T) {
+	m := newTestModel(t)
+	first := m.focused
+	m.doSplit(layout.Horizontal, "")
+
+	// From second pane, <C-w>W should cycle back to first.
+	m.handleCtrlW("W")
+	require.Equal(t, first, m.focused)
+}
+
+func TestCtrlW_s_horizontalSplit(t *testing.T) {
+	m := newTestModel(t)
+	m.handleCtrlW("s")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+	require.Equal(t, layout.Horizontal, m.root.Dir)
+}
+
+func TestCtrlW_v_verticalSplit(t *testing.T) {
+	m := newTestModel(t)
+	m.handleCtrlW("v")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+	require.Equal(t, layout.Vertical, m.root.Dir)
+}
+
+func TestCtrlW_q_closesPane(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Horizontal, "")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+
+	m.handleCtrlW("q")
+	require.Len(t, layout.AllLeaves(m.root), 1)
+}
+
+func TestCtrlW_o_keepsOnlyFocused(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Horizontal, "")
+	m.doSplit(layout.Vertical, "")
+	focused := m.focused
+
+	m.handleCtrlW("o")
+	require.Len(t, layout.AllLeaves(m.root), 1)
+	require.Equal(t, focused, m.focused)
+}
+
+func TestCtrlW_equals_equalizesRatios(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Horizontal, "")
+	// After split, both panes should have equal ratios — equalize is a no-op here
+	// but must not panic.
+	m.handleCtrlW("=")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+}
+
+func TestCtrlW_hjkl_moveFocusByDirection(t *testing.T) {
+	m := newTestModel(t)
+	top := m.focused
+	m.doSplit(layout.Horizontal, "")
+	bottom := m.focused
+
+	// Move back up.
+	m.handleCtrlW("k")
+	require.Equal(t, top, m.focused)
+
+	// Move back down.
+	m.handleCtrlW("j")
+	require.Equal(t, bottom, m.focused)
+}
+
+func TestCtrlW_CtrlW_aliasesCycleNext(t *testing.T) {
+	m := newTestModel(t)
+	first := m.focused
+	m.doSplit(layout.Horizontal, "")
+
+	m.handleCtrlW("<C-w>")
+	require.Equal(t, first, m.focused)
+}
+
 func TestDivider(t *testing.T) {
 	require.Equal(t, "", divider(0))
 	require.Equal(t, "│", divider(1))
