@@ -275,6 +275,23 @@ func TestAssignBounds_vertical_dividesWidth(t *testing.T) {
 	require.Greater(t, w1, 0)
 }
 
+func TestAssignBounds_vertical_threeEqualPanesHaveEqualWidths(t *testing.T) {
+	ps := panes(3)
+	root := layout.Split(layout.NewLeaf(ps[0]), ps[0], layout.Vertical, ps[1])
+	root = layout.Split(root, ps[0], layout.Vertical, ps[2])
+	layout.EqualizeRatios(root)
+	// w=80: 80-2 dividers=78 content cols, 78/3=26 each — exactly divisible.
+	layout.AssignBounds(root, 0, 0, 80, 24)
+
+	_, _, w0, _ := ps[0].Bounds()
+	_, _, w1, _ := ps[1].Bounds()
+	_, _, w2, _ := ps[2].Bounds()
+	// 2 dividers: w0+1+w1+1+w2 = 80. Equal ratios → all widths equal.
+	require.Equal(t, 80, w0+w1+w2+2, "three vertical panes + 2 dividers = total width")
+	require.Equal(t, w0, w1, "equal-ratio panes should have equal content widths")
+	require.Equal(t, w1, w2, "equal-ratio panes should have equal content widths")
+}
+
 func TestAssignBounds_vertical_fullHeight(t *testing.T) {
 	ps := panes(2)
 	root := layout.Split(layout.NewLeaf(ps[0]), ps[0], layout.Vertical, ps[1])

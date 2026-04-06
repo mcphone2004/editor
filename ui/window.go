@@ -174,7 +174,7 @@ func (p *winPane) renderStatus(isFocused bool, lspSession lsp.Session) string {
 		lspIndicator = styleStatusLSPOff.Render("no LSP")
 	}
 	right := lspIndicator + "  " + fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
-	pad := p.w - lipgloss.Width(left) - lipgloss.Width(right) - 1
+	pad := p.w - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 0 {
 		pad = 0
 	}
