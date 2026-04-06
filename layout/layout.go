@@ -324,15 +324,19 @@ func AssignBounds(n *Node, x, y, w, h int) {
 			cy += heights[i]
 		}
 	case Vertical:
-		widths := distribute(w, childRatios(n))
+		// Pre-subtract one column per divider so that equal ratios produce
+		// equal content widths regardless of pane count.
+		numDividers := len(n.Children) - 1
+		contentW := w - numDividers
+		contentW = max(contentW, len(n.Children)) // guarantee at least 1 col per pane
+		widths := distribute(contentW, childRatios(n))
 		cx := x
 		for i, child := range n.Children {
-			pw := widths[i]
-			if i < len(n.Children)-1 {
-				pw = max(pw-1, 1) // reserve 1 column for divider
-			}
-			AssignBounds(child, cx, y, pw, h)
+			AssignBounds(child, cx, y, widths[i], h)
 			cx += widths[i]
+			if i < len(n.Children)-1 {
+				cx++ // skip the divider column
+			}
 		}
 	}
 }
