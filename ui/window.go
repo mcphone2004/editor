@@ -211,11 +211,12 @@ func renderNode(n *layout.Node, focused *winPane, lspSession lsp.Session) string
 	return ""
 }
 
-// divider returns a single-column vertical bar string h lines tall, without a
-// trailing newline, suitable for passing to lipgloss.JoinHorizontal.
+// divider returns a styled single-column vertical bar string h lines tall,
+// without a trailing newline, suitable for passing to lipgloss.JoinHorizontal.
 func divider(h int) string {
 	if h <= 0 {
 		return ""
 	}
-	return strings.Repeat("│\n", h-1) + "│"
+	bar := styleDivider.Render("│")
+	return strings.Repeat(bar+"\n", h-1) + bar
 }

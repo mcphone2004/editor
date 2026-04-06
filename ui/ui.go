@@ -89,6 +89,10 @@ var (
 				Background(lipgloss.Color("240")).
 				Foreground(lipgloss.Color("252")).
 				Padding(0, 1)
+
+	styleDivider = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("238")).
+			Background(lipgloss.Color("235"))
 )
 
 // --- Message types for async operations ---
