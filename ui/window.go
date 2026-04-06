@@ -82,26 +82,30 @@ func (p *winPane) render(isFocused bool, lspSession lsp.Session) string {
 	visStart, visEnd := p.ed.VisualRange()
 	isVisual := p.ed.Mode() == editor.ModeVisual || p.ed.Mode() == editor.ModeVisualLine
 
+	clipStyle := lipgloss.NewStyle().MaxWidth(p.w)
 	for i := 0; i < visRows; i++ {
 		row := p.scroll + i
 
-		sb.WriteString(styleLineNum.Render(fmt.Sprintf("%d", row+1)))
-		sb.WriteString(" ")
+		// Build the line into a temporary buffer then clip to pane width.
+		var line strings.Builder
+
+		line.WriteString(styleLineNum.Render(fmt.Sprintf("%d", row+1)))
+		line.WriteString(" ")
 
 		if d, ok := diagMap[row]; ok {
 			if d.Severity == lsp.SeverityError {
-				sb.WriteString(styleError.Render("E"))
+				line.WriteString(styleError.Render("E"))
 			} else {
-				sb.WriteString(styleWarning.Render("W"))
+				line.WriteString(styleWarning.Render("W"))
 			}
 		} else {
-			sb.WriteString(" ")
+			line.WriteString(" ")
 		}
-		sb.WriteString(" ")
+		line.WriteString(" ")
 
 		if row < buf.LineCount() {
-			line := []rune(buf.Line(row))
-			for col, r := range line {
+			content := []rune(buf.Line(row))
+			for col, r := range content {
 				var ch string
 				switch {
 				case r == '\t':
@@ -117,17 +121,19 @@ func (p *winPane) render(isFocused bool, lspSession lsp.Session) string {
 
 				switch {
 				case isCursor:
-					sb.WriteString(styleCursor.Render(ch))
+					line.WriteString(styleCursor.Render(ch))
 				case inVisual:
-					sb.WriteString(styleVisualHL.Render(ch))
+					line.WriteString(styleVisualHL.Render(ch))
 				default:
-					sb.WriteString(ch)
+					line.WriteString(ch)
 				}
 			}
-			if isFocused && row == cur.Row && cur.Col >= len(line) {
-				sb.WriteString(styleCursor.Render(" "))
+			if isFocused && row == cur.Row && cur.Col >= len(content) {
+				line.WriteString(styleCursor.Render(" "))
 			}
 		}
+
+		sb.WriteString(clipStyle.Render(line.String()))
 		sb.WriteString("\n")
 	}
 
@@ -174,7 +180,7 @@ func (p *winPane) renderStatus(isFocused bool, lspSession lsp.Session) string {
 		lspIndicator = styleStatusLSPOff.Render("no LSP")
 	}
 	right := lspIndicator + "  " + fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1)
-	pad := p.w - lipgloss.Width(left) - lipgloss.Width(right) - 1
+	pad := p.w - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad < 0 {
 		pad = 0
 	}
@@ -211,11 +217,12 @@ func renderNode(n *layout.Node, focused *winPane, lspSession lsp.Session) string
 	return ""
 }
 
-// divider returns a single-column vertical bar string h lines tall, without a
-// trailing newline, suitable for passing to lipgloss.JoinHorizontal.
+// divider returns a styled single-column vertical bar string h lines tall,
+// without a trailing newline, suitable for passing to lipgloss.JoinHorizontal.
 func divider(h int) string {
 	if h <= 0 {
 		return ""
 	}
-	return strings.Repeat("│\n", h-1) + "│"
+	bar := styleDivider.Render("│")
+	return strings.Repeat(bar+"\n", h-1) + bar
 }
