@@ -230,7 +230,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case status == "quit" || status == "quit!":
 		if status == "quit!" || !p.ed.Buf().Modified() {
-			return m, tea.Quit
+			if len(layout.AllLeaves(m.root)) > 1 {
+				m.doClosePane()
+			} else {
+				return m, tea.Quit
+			}
 		}
 	case strings.HasPrefix(status, "open:"):
 		path := strings.TrimPrefix(status, "open:")
@@ -241,6 +245,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.hover())
 	case status == "lsp:complete":
 		cmds = append(cmds, m.complete())
+	case strings.HasPrefix(status, "split:"):
+		path := strings.TrimPrefix(status, "split:")
+		m.doSplit(layout.Horizontal, path)
+	case strings.HasPrefix(status, "vsplit:"):
+		path := strings.TrimPrefix(status, "vsplit:")
+		m.doSplit(layout.Vertical, path)
+	case status == "only":
+		m.doOnly()
 	}
 
 	// Flush gap buffer when leaving insert mode.
@@ -494,6 +506,45 @@ func parseVetOutput(output, _ string) []editor.Diagnostic {
 }
 
 // --- helpers ---
+
+// doSplit splits the focused pane in direction dir.  If path is non-empty the
+// new pane opens that file; otherwise it mirrors the focused pane's buffer.
+func (m *Model) doSplit(dir layout.Dir, path string) {
+	var buf buffer.Buffer
+	var err error
+	if path != "" {
+		buf, err = buffer.Open(path)
+		if err != nil {
+			m.focused.hoverText = fmt.Sprintf("split error: %v", err)
+			return
+		}
+	} else {
+		buf = m.focused.ed.Buf()
+	}
+	newP := &winPane{ed: editor.New(buf)}
+	m.root = layout.Split(m.root, m.focused, dir, newP)
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	m.focused = newP
+}
+
+// doOnly closes all panes except the focused one.
+func (m *Model) doOnly() {
+	m.root = layout.NewLeaf(m.focused)
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+}
+
+// doClosePane closes the focused pane and moves focus to the suggested neighbor.
+func (m *Model) doClosePane() {
+	newRoot, newFocus, last := layout.Close(m.root, m.focused)
+	if last || newRoot == nil {
+		return
+	}
+	m.root = newRoot
+	if p, ok := newFocus.(*winPane); ok {
+		m.focused = p
+	}
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+}
 
 func (m *Model) openFile(path string) tea.Cmd {
 	return func() tea.Msg {

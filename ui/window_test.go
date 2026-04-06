@@ -145,6 +145,68 @@ func TestRenderNode_VerticalSplit(t *testing.T) {
 	require.Contains(t, plain, "│")
 }
 
+// --- split / close / only ---
+
+func newTestModel(t *testing.T) *Model {
+	t.Helper()
+	m, err := New("", nil, nil)
+	require.NoError(t, err)
+	m.width = 80
+	m.height = 24
+	layout.AssignBounds(m.root, 0, 0, m.width, m.height-1)
+	return m
+}
+
+func TestDoSplit_Horizontal_addsPaneBelow(t *testing.T) {
+	m := newTestModel(t)
+	require.Len(t, layout.AllLeaves(m.root), 1)
+
+	m.doSplit(layout.Horizontal, "")
+	leaves := layout.AllLeaves(m.root)
+	require.Len(t, leaves, 2)
+	require.Equal(t, m.focused, leaves[1].(*winPane))
+}
+
+func TestDoSplit_Vertical_addsPaneRight(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Vertical, "")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+	require.Equal(t, layout.Vertical, m.root.Dir)
+}
+
+func TestDoOnly_collapsesToOnePaneide(t *testing.T) {
+	m := newTestModel(t)
+	m.doSplit(layout.Horizontal, "")
+	m.doSplit(layout.Vertical, "")
+	require.Greater(t, len(layout.AllLeaves(m.root)), 1)
+
+	m.doOnly()
+	require.Len(t, layout.AllLeaves(m.root), 1)
+	require.Equal(t, m.focused, layout.AllLeaves(m.root)[0].(*winPane))
+}
+
+func TestDoClosePane_removesPane(t *testing.T) {
+	m := newTestModel(t)
+	original := m.focused
+	m.doSplit(layout.Horizontal, "")
+	require.Len(t, layout.AllLeaves(m.root), 2)
+
+	// Close the new focused pane; focus should revert to original.
+	m.doClosePane()
+	leaves := layout.AllLeaves(m.root)
+	require.Len(t, leaves, 1)
+	require.Equal(t, original, leaves[0].(*winPane))
+	require.Equal(t, original, m.focused)
+}
+
+func TestDoClosePane_noopOnLastPane(t *testing.T) {
+	m := newTestModel(t)
+	// With only one pane, doClosePane should be a no-op (the caller checks
+	// pane count, but doClosePane itself must not panic).
+	m.doClosePane()
+	require.Len(t, layout.AllLeaves(m.root), 1)
+}
+
 func TestDivider(t *testing.T) {
 	require.Equal(t, "", divider(0))
 	require.Equal(t, "│", divider(1))

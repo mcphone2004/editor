@@ -91,8 +91,11 @@ The editor engine communicates async actions to the UI via `statusMsg` sentinel 
 | `"lsp:gd"` | trigger go-to-definition |
 | `"lsp:hover"` | trigger hover info |
 | `"lsp:complete"` | trigger completion |
-| `"quit"` | exit the program |
+| `"quit"` | exit the program (or close pane if multiple panes open) |
 | `"open:<path>"` | open a new file |
+| `"split:<path>"` | horizontal split (`:sp`/`:split`); path optional |
+| `"vsplit:<path>"` | vertical split (`:vs`/`:vsp`/`:vsplit`); path optional |
+| `"only"` | close all panes except focused (`:only`) |
 
 ---
 
