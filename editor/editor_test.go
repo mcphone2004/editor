@@ -1,10 +1,8 @@
 package editor_test
 
 import (
-	"os"
 	"testing"
 
-	"github.com/anthonybrice/editor/buffer"
 	"github.com/anthonybrice/editor/editor"
 	"go.uber.org/goleak"
 )
@@ -17,11 +15,7 @@ func TestMain(m *testing.M) {
 
 func newEditor(t *testing.T, content string) editor.Editor {
 	t.Helper()
-	buf := buffer.New()
-	if content != "" {
-		buf.InsertString(0, 0, content)
-	}
-	return editor.New(buf)
+	return editor.New(newFakeBuffer(content))
 }
 
 func typeKeys(e editor.Editor, keys ...string) {
@@ -343,9 +337,9 @@ func TestVisual_d_deletesSelection(t *testing.T) {
 // --- Command mode ---
 
 func TestCommand_w_setsWrittenStatus(t *testing.T) {
-	buf := buffer.New()
-	buf.SetPath("/tmp/editor_test_cmd.txt")
-	e := editor.New(buf)
+	fb := newFakeBuffer("")
+	fb.SetPath(t.TempDir() + "/editor_test_cmd.txt")
+	e := editor.New(fb)
 	typeKeys(e, ":", "w", "<Enter>")
 	if e.StatusMsg() == "" {
 		t.Fatal("expected a status message after :w")
@@ -410,31 +404,11 @@ func TestDiagnostics_empty(t *testing.T) {
 	}
 }
 
-// --- Undo / Redo (requires Postgres) ---
-
-const editorTestDSN = "host=localhost user=postgres dbname=editor sslmode=disable"
+// --- Undo / Redo ---
 
 func newEditorWithUndo(t *testing.T, content string) editor.Editor {
 	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "editor_undo_test_*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.WriteString(content); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-	buf, err := buffer.OpenWithUndo(f.Name(), editorTestDSN)
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping undo test", err)
-	}
-	t.Cleanup(buf.Close)
-	if !buf.HasUndoStore() {
-		t.Skip("postgres unavailable — skipping undo test")
-	}
-	return editor.New(buf)
+	return editor.New(newFakeBuffer(content))
 }
 
 func TestUndo_dd_restoresCursorAndText(t *testing.T) {
