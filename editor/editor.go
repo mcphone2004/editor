@@ -67,6 +67,12 @@ type Editor interface {
 	SetDiagnostics(d []Diagnostic)
 	GetDiagnostics() []Diagnostic
 	HandleKey(key string)
+	// Register returns the current value of the unnamed register.
+	// The UI layer owns register state and injects it before each keypress
+	// so that all panes share a single global register (vim semantics).
+	Register() Register
+	// SetRegister replaces the unnamed register before a keypress is dispatched.
+	SetRegister(r Register)
 }
 
 // editorState is the concrete state of one open file.
@@ -129,6 +135,12 @@ func (e *editorState) CmdMode() rune { return e.cmdMode }
 
 // StatusMsg returns the current status message (empty when none).
 func (e *editorState) StatusMsg() string { return e.statusMsg }
+
+// Register returns the current value of the unnamed register.
+func (e *editorState) Register() Register { return e.register }
+
+// SetRegister replaces the unnamed register.
+func (e *editorState) SetRegister(r Register) { e.register = r }
 
 // SetDiagnostics replaces the current diagnostic list.
 func (e *editorState) SetDiagnostics(d []Diagnostic) { e.diagnostics = d }

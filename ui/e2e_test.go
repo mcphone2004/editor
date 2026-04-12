@@ -234,6 +234,27 @@ func TestE2E_BackspaceInInsert(t *testing.T) {
 	}
 }
 
+func TestE2E_YankAndPaste_CrossPane(t *testing.T) {
+	// yy in one pane, switch to the other pane, p — register must be shared.
+	m := newModel(t)
+	m = press(m, "i", "f", "o", "o", "<Esc>") // type "foo"
+	m = press(m, ":", "v", "s", "<Enter>")    // :vs — vertical split (same buffer)
+	m = press(m, "<C-w>", "w")                // move focus to original pane
+	m = press(m, "y", "y")                    // yank the line
+	m = press(m, "<C-w>", "w")                // switch to the other pane
+	m = press(m, "p")                         // paste — should see "foo" on a new line
+
+	count := 0
+	for _, l := range contentLines(m) {
+		if strings.Contains(l, "foo") {
+			count++
+		}
+	}
+	if count < 2 {
+		t.Errorf("expected 'foo' on 2 lines after cross-pane yy+p, found %d\n%s", count, viewText(m))
+	}
+}
+
 func TestE2E_YankAndPaste_yy_p(t *testing.T) {
 	m := newModel(t)
 	m = press(m, "i", "f", "o", "o", "<Esc>")

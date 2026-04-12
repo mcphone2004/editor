@@ -119,7 +119,8 @@ type Model struct {
 	tel          telemetry.Telemetry
 	width        int
 	height       int
-	ctrlWPending bool // true after <C-w> is pressed, waiting for the second key
+	ctrlWPending bool            // true after <C-w> is pressed, waiting for the second key
+	register     editor.Register // shared unnamed register across all panes (vim semantics)
 }
 
 // New creates a Model. Opens the file at path (empty = new buffer).
@@ -235,7 +236,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p.ed.Buf().ActivateGap(cur.Row, cur.Col)
 	}
 
+	p.ed.SetRegister(m.register)
 	p.ed.HandleKey(key)
+	m.register = p.ed.Register()
 
 	// Clear hover when cursor moves.
 	p.hoverText = ""
