@@ -345,6 +345,50 @@ func (_c *MockEditor_Mode_Call) RunAndReturn(run func() editor.Mode) *MockEditor
 	return _c
 }
 
+// Register provides a mock function for the type MockEditor
+func (_mock *MockEditor) Register() editor.Register {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Register")
+	}
+
+	var r0 editor.Register
+	if returnFunc, ok := ret.Get(0).(func() editor.Register); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(editor.Register)
+	}
+	return r0
+}
+
+// MockEditor_Register_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Register'
+type MockEditor_Register_Call struct {
+	*mock.Call
+}
+
+// Register is a helper method to define mock.On call
+func (_e *MockEditor_Expecter) Register() *MockEditor_Register_Call {
+	return &MockEditor_Register_Call{Call: _e.mock.On("Register")}
+}
+
+func (_c *MockEditor_Register_Call) Run(run func()) *MockEditor_Register_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockEditor_Register_Call) Return(register editor.Register) *MockEditor_Register_Call {
+	_c.Call.Return(register)
+	return _c
+}
+
+func (_c *MockEditor_Register_Call) RunAndReturn(run func() editor.Register) *MockEditor_Register_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetDiagnostics provides a mock function for the type MockEditor
 func (_mock *MockEditor) SetDiagnostics(d []editor.Diagnostic) {
 	_mock.Called(d)
@@ -381,6 +425,46 @@ func (_c *MockEditor_SetDiagnostics_Call) Return() *MockEditor_SetDiagnostics_Ca
 }
 
 func (_c *MockEditor_SetDiagnostics_Call) RunAndReturn(run func(d []editor.Diagnostic)) *MockEditor_SetDiagnostics_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetRegister provides a mock function for the type MockEditor
+func (_mock *MockEditor) SetRegister(r editor.Register) {
+	_mock.Called(r)
+	return
+}
+
+// MockEditor_SetRegister_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetRegister'
+type MockEditor_SetRegister_Call struct {
+	*mock.Call
+}
+
+// SetRegister is a helper method to define mock.On call
+//   - r editor.Register
+func (_e *MockEditor_Expecter) SetRegister(r interface{}) *MockEditor_SetRegister_Call {
+	return &MockEditor_SetRegister_Call{Call: _e.mock.On("SetRegister", r)}
+}
+
+func (_c *MockEditor_SetRegister_Call) Run(run func(r editor.Register)) *MockEditor_SetRegister_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 editor.Register
+		if args[0] != nil {
+			arg0 = args[0].(editor.Register)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockEditor_SetRegister_Call) Return() *MockEditor_SetRegister_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockEditor_SetRegister_Call) RunAndReturn(run func(r editor.Register)) *MockEditor_SetRegister_Call {
 	_c.Run(run)
 	return _c
 }

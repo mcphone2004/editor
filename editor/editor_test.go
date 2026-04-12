@@ -517,3 +517,20 @@ func TestUndo_atOldest_showsMessage(t *testing.T) {
 		t.Errorf("status = %q, want \"already at oldest change\"", e.StatusMsg())
 	}
 }
+
+func TestYankPaste_yy_and_p(t *testing.T) {
+	e := newEditor(t, "hello\nworld\nfoo")
+
+	// yy yanks the current (first) line
+	typeKeys(e, "y", "y")
+	// p pastes below
+	typeKeys(e, "p")
+
+	if e.Buf().LineCount() != 4 {
+		t.Fatalf("expected 4 lines after yy+p, got %d\nlines: %q %q %q",
+			e.Buf().LineCount(), line(e, 0), line(e, 1), line(e, 2))
+	}
+	if line(e, 1) != "hello" {
+		t.Fatalf("line 1 = %q, want %q", line(e, 1), "hello")
+	}
+}

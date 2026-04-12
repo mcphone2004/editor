@@ -130,6 +130,9 @@ func (s *PgStore) Current() piece.Snapshot {
 	return s.entries[s.stackTop].snapshot
 }
 
+// CurrentIndex returns the stack position of the current snapshot.
+func (s *PgStore) CurrentIndex() int { return s.stackTop }
+
 // Close releases the database connection.
 func (s *PgStore) Close() error { return s.db.Close() }
 
