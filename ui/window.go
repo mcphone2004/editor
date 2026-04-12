@@ -2,14 +2,58 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/anthonybrice/editor/editor"
+	"github.com/anthonybrice/editor/highlight"
+	goHL "github.com/anthonybrice/editor/highlight/golang"
 	"github.com/anthonybrice/editor/layout"
 	"github.com/anthonybrice/editor/lsp"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// --- Syntax highlight styles and registry ---
+
+//nolint:gochecknoglobals // immutable after init
+var (
+	styleHLKeyword = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+	styleHLString  = lipgloss.NewStyle().Foreground(lipgloss.Color("71"))
+	styleHLNumber  = lipgloss.NewStyle().Foreground(lipgloss.Color("172"))
+	styleHLComment = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
+)
+
+//nolint:gochecknoglobals // populated once at init, never mutated
+var highlighters = map[string]highlight.Highlighter{
+	".go": goHL.New(),
+}
+
+// hlStyle maps a highlight.Kind to its lipgloss style.
+func hlStyle(k highlight.Kind) lipgloss.Style {
+	switch k {
+	case highlight.KindNone:
+		return lipgloss.NewStyle()
+	case highlight.KindKeyword:
+		return styleHLKeyword
+	case highlight.KindString:
+		return styleHLString
+	case highlight.KindNumber:
+		return styleHLNumber
+	case highlight.KindComment:
+		return styleHLComment
+	}
+	return lipgloss.NewStyle() // unreachable: exhaustive linter guards all defined Kind constants
+}
+
+// highlighterForPath returns the registered Highlighter for path's extension,
+// or nil when no highlighter is available.
+func highlighterForPath(path string) highlight.Highlighter {
+	if path == "" {
+		return nil
+	}
+	return highlighters[filepath.Ext(path)]
+}
 
 // winPane is a single editor window that satisfies layout.Pane.
 // It bundles an editor engine with its buffer-local UI state (scroll, completion
@@ -82,6 +126,13 @@ func (p *winPane) render(isFocused bool, lspSession lsp.Session) string {
 	visStart, visEnd := p.ed.VisualRange()
 	isVisual := p.ed.Mode() == editor.ModeVisual || p.ed.Mode() == editor.ModeVisualLine
 
+	// Compute syntax highlights for the visible window (nil when no highlighter
+	// is registered for this file type).
+	var hlMap map[int]highlight.LineHL
+	if h := highlighterForPath(buf.Path()); h != nil {
+		hlMap = h.Highlight(buf.String(), p.scroll, p.scroll+visRows-1)
+	}
+
 	clipStyle := lipgloss.NewStyle().MaxWidth(p.w)
 	for i := 0; i < visRows; i++ {
 		row := p.scroll + i
@@ -105,6 +156,7 @@ func (p *winPane) render(isFocused bool, lspSession lsp.Session) string {
 
 		if row < buf.LineCount() {
 			content := []rune(buf.Line(row))
+			rowHL := hlMap[row] // nil when no highlights for this row
 			for col, r := range content {
 				var ch string
 				switch {
@@ -125,7 +177,11 @@ func (p *winPane) render(isFocused bool, lspSession lsp.Session) string {
 				case inVisual:
 					line.WriteString(styleVisualHL.Render(ch))
 				default:
-					line.WriteString(ch)
+					if col < len(rowHL) && rowHL[col] != highlight.KindNone {
+						line.WriteString(hlStyle(rowHL[col]).Render(ch))
+					} else {
+						line.WriteString(ch)
+					}
 				}
 			}
 			if isFocused && row == cur.Row && cur.Col >= len(content) {
