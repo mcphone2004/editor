@@ -47,5 +47,8 @@ func (s *MemStore) Current() piece.Snapshot {
 	return s.entries[s.stackTop]
 }
 
+// CurrentIndex returns the stack position of the current snapshot.
+func (s *MemStore) CurrentIndex() int { return s.stackTop }
+
 // Close is a no-op; satisfies piece.UndoStore.
 func (s *MemStore) Close() error { return nil }

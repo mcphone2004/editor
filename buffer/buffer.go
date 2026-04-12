@@ -77,6 +77,9 @@ type fileBuffer struct {
 
 	// Optional Postgres-backed undo store.  nil when postgres is unavailable.
 	store piece.UndoStore
+	// savedIndex is the store's CurrentIndex() at the time of the last save
+	// (or 0 at open time). Undo/Redo clears modified when the index matches.
+	savedIndex int
 
 	// Cursor hint recorded before a mutating operation so the snapshot
 	// captures where the user was before the change.
@@ -134,6 +137,7 @@ func (b *fileBuffer) Save() error {
 		return err
 	}
 	b.modified = false
+	b.savedIndex = b.store.CurrentIndex()
 	return nil
 }
 
@@ -211,7 +215,7 @@ func (b *fileBuffer) Undo() (row, col int, ok bool) {
 		return 0, 0, false
 	}
 	b.table.Restore(snap)
-	b.modified = true
+	b.modified = b.store.CurrentIndex() != b.savedIndex
 	return snap.CursorRow, snap.CursorCol, true
 }
 
@@ -225,7 +229,7 @@ func (b *fileBuffer) Redo() (row, col int, ok bool) {
 		return 0, 0, false
 	}
 	b.table.Restore(snap)
-	b.modified = true
+	b.modified = b.store.CurrentIndex() != b.savedIndex
 	return snap.CursorRow, snap.CursorCol, true
 }
 

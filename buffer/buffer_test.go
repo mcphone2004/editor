@@ -128,6 +128,22 @@ func TestInsert_setsModified(t *testing.T) {
 	}
 }
 
+func TestUndo_clearsModified(t *testing.T) {
+	buf := newBuf(t, "hello")
+	buf.SetCursorHint(0, 0)
+	buf.PasteAfter(0, 0, "x", false)
+	if !buf.Modified() {
+		t.Fatal("expected Modified=true after paste")
+	}
+	_, _, ok := buf.Undo()
+	if !ok {
+		t.Fatal("undo failed")
+	}
+	if buf.Modified() {
+		t.Error("expected Modified=false after undoing back to opened state")
+	}
+}
+
 func TestInsertString(t *testing.T) {
 	buf := newBuf(t, "")
 	buf.InsertString(0, 0, "hello")
@@ -297,28 +313,46 @@ func TestInsertLineAbove(t *testing.T) {
 
 func TestPasteAfter_charwise(t *testing.T) {
 	buf := newBuf(t, "helo")
-	buf.PasteAfter(0, 2, "l", false)
+	newRow, newCol := buf.PasteAfter(0, 2, "l", false)
 	if buf.Line(0) != "hello" {
 		t.Fatalf("got %q", buf.Line(0))
+	}
+	if newRow != 0 || newCol != 3 {
+		t.Errorf("cursor = (%d,%d), want (0,3)", newRow, newCol)
+	}
+	if !buf.Modified() {
+		t.Error("expected Modified=true after paste")
 	}
 }
 
 func TestPasteBefore_charwise(t *testing.T) {
 	buf := newBuf(t, "ello")
-	buf.PasteBefore(0, 0, "h", false)
+	newRow, newCol := buf.PasteBefore(0, 0, "h", false)
 	if buf.Line(0) != "hello" {
 		t.Fatalf("got %q", buf.Line(0))
+	}
+	if newRow != 0 || newCol != 0 {
+		t.Errorf("cursor = (%d,%d), want (0,0)", newRow, newCol)
+	}
+	if !buf.Modified() {
+		t.Error("expected Modified=true after paste")
 	}
 }
 
 func TestPasteAfter_linewise(t *testing.T) {
 	buf := newBuf(t, "a\nc")
-	buf.PasteAfter(0, 0, "b", true)
+	newRow, newCol := buf.PasteAfter(0, 0, "b", true)
 	if buf.LineCount() != 3 {
 		t.Fatalf("expected 3 lines, got %d", buf.LineCount())
 	}
 	if buf.Line(1) != "b" {
 		t.Errorf("line 1 = %q", buf.Line(1))
+	}
+	if newRow != 1 || newCol != 0 {
+		t.Errorf("cursor = (%d,%d), want (1,0)", newRow, newCol)
+	}
+	if !buf.Modified() {
+		t.Error("expected Modified=true after paste")
 	}
 }
 
